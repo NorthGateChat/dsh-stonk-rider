@@ -1,0 +1,38 @@
+@layer theme, base, utilities;
+@import "tailwindcss/theme.css" layer(theme) prefix(sr);
+@import "tailwindcss/utilities.css" layer(utilities) prefix(sr) source(none);
+@source "./client.tsx";
+@source "./ui";
+
+@custom-variant dark (&:where(body[data-ds-dark-theme] *));
+@theme inline {
+  --color-background: var(--stonk-base);
+  --color-card: var(--stonk-card);
+  --color-card-foreground: var(--stonk-text);
+  --color-foreground: var(--stonk-text);
+  --color-border: var(--stonk-border);
+  --color-input: var(--stonk-border);
+  --color-primary: var(--stonk-primary);
+  --color-primary-foreground: var(--stonk-primary-text);
+  --color-secondary: var(--stonk-muted);
+  --color-secondary-foreground: var(--stonk-text);
+  --color-accent: var(--stonk-muted);
+  --color-accent-foreground: var(--stonk-text);
+  --color-muted: var(--stonk-muted);
+  --color-muted-foreground: var(--stonk-secondary);
+  --color-destructive: var(--stonk-down);
+  --color-ring: var(--stonk-primary);
+}
+
+@layer base {
+  .stonk-workspace :where([data-stonk-ui] [data-slot]) {
+    box-sizing: border-box;
+    border: 0 solid var(--stonk-border);
+  }
+  .stonk-workspace :where([data-stonk-ui] button[data-slot="button"]) {
+    font: inherit;
+    color: inherit;
+    background: transparent;
+    cursor: pointer;
+  }
+}

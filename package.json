@@ -1,0 +1,37 @@
+{
+  "name": "dsh-stonk-rider",
+  "version": "0.7.0",
+  "private": true,
+  "description": "Stonk Rider 1.0.73 with contextual conversations for DeepSeek Harness Web",
+  "type": "module",
+  "exports": {
+    ".": "./lib/host.js",
+    "./client": "./lib/client.js",
+    "./package.json": "./package.json"
+  },
+  "dsh": {
+    "bundle": { "patch": "./cordis.patch.yml" },
+    "client": {
+      "platform": "web",
+      "inject": [
+        "@deepseek-ai/dsh-api-session-controller",
+        "@deepseek-ai/dsh-client-ui-conversation",
+        "@deepseek-ai/dsh-client-ui-sidebar",
+        "@deepseek-ai/dsh-client-ui-layout"
+      ]
+    }
+  },
+  "files": ["lib", "src", "scripts", "cordis.patch.yml"],
+  "scripts": { "build": "node scripts/build.mjs" },
+  "devDependencies": {
+    "@radix-ui/react-slot": "1.2.3",
+    "@tailwindcss/cli": "4.1.17",
+    "@types/react": "18.3.18",
+    "class-variance-authority": "0.7.1",
+    "clsx": "2.1.1",
+    "esbuild": "0.28.2",
+    "lucide-react": "0.468.0",
+    "tailwind-merge": "3.3.1",
+    "tailwindcss": "4.1.17"
+  }
+}

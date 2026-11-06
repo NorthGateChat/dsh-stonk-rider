@@ -1,0 +1,3758 @@
+<!DOCTYPE html>
+<!-- STONK-RIDER v1.0.71 : Bilibili Toy 排行榜接入 —— SDK v1.2.0 (submitScore/getRankList/getMyRank/getUserProfile),单榜位 board=1,周榜/总榜 tab,首页 #lbBtn 入口,赛程完赛(matchDone)时提交 si.cash 到榜,非 Toy 环境下 isSupport 检测失败自动隐藏入口。-->
+<!-- STONK-RIDER v1.0.60 : 战后复盘室(休整室) —— 局间三段式过渡替代旧结算面板。中盘冲线(win && !matchDone && !bankrupt)直接进休整室:战绩(本金→结算/涨跌/回撤峰值) + 关键时刻回顾(3 条 buffNodes 事件·5 种玩家判定文案) + 3 选 1 抽卡(可跳过保留原 build)。完赛(matchDone)走原赛程结算大屏,破产走原结算徽章。对战内不再触发抽卡,buffNodes 只做持仓快照。 -->
+<!-- STONK-RIDER v1.0.59 : 金铲铲赛程节奏 —— 一场赛程 = 8 回合,每回合一支股票。Buff 卡跨回合累积形成 build,抽卡池按已有 buff 家族加权协同。HUD 显示 "第 K/8 · 峰值",中盘回合走"下一回合",第 8 回合走"赛程结算大屏"(8 回合缩略战绩 + 总收益率 + S/A/B/C/D 评级)。破产随时中断赛程。 -->
+<!-- STONK-RIDER v1.0.57 : 抽卡时可平仓 —— 抽卡遮罩加持仓状态条(方向/仓位/浮动盈亏),空格/←/X/平仓按钮均可落袋;不允许开新仓/加仓/反手,保留"停机深呼吸"仪式感。解决"骑到山顶弹卡但满仓浮盈,选完再平已经跌回来"的憋屈。 -->
+<!-- STONK-RIDER v1.0.56 : 事件-抽卡融合 —— 抽卡节点从固定位置(25%/55%/85%)改为事件驱动,骑到"巅峰/深渊/暴涨/派息"等真历史时刻自动弹卡;卡池按事件类型加权(巅峰→防御池·深渊&暴涨→进攻池·派息→稳健池),3 张里 2 张来自事件专属池 + 1 张通用保底;抽卡遮罩顶部渲染彩色事件横幅(日期+标签+隐喻),叙事和机制彻底打通。 -->
+<!-- STONK-RIDER v1.0.58d : 分享卡三态文案 —— 副标题+数字下方+底部段子按赢/大赢/爆仓/亏/平差异化,让 $0 分享卡也自带信息量。-->
+<!-- STONK-RIDER v1.0.54 : 真实数据大扩容 —— 新增 10 只 A 股/港股(茅台/宁王/招行/平安/比亚迪/腾讯/阿里 HK/工行/紫金/中信证券)hfq 后复权全周期 + events 4 类算法自动挖掘(巨额派息/单周暴涨崩盘/巅峰深渊/一路创高再破新高)。资产宇宙从 14 → 24 条赛道,unit 按市场自适应(¥/HK$/$)。 -->
+<!-- BGM: "Kick Shock" by Kevin MacLeod (incompetech.com), Licensed under Creative Commons: By Attribution 4.0 License, http://creativecommons.org/licenses/by/4.0/ -->
+<!-- STONK-RIDER v1.0.49 : Combo 押注系统 x2/x3/x4/x5 STREAK,连胜升仓位 20-40% -->
+<!-- prev: v1.0.46 3A-suspension 3B-speedlines 3C-flip-feel 4A-closebtn-pnl -->
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+<title>K线狂飙 · 落袋,还是爆仓?</title>
+<!-- v1.0.71: Bilibili Toy SDK (排行榜/云存储/用户信息) — CDN 从 SDK 文档抠出,SDK v1.2.0 -->
+<script src="https://s1.hdslb.com/bfs/seed/toy/app/sdk/toy-sdk.js" defer></script>
+<style>
+  /* ============================================================
+     极简设计系统 — 深炭灰底 + 单一青绿强调 + 雾红/雾绿涨跌 + 零发光
+     ============================================================ */
+  :root{
+    --bg:#101216;          /* 主底色 深炭灰 */
+    --bg2:#16191f;         /* 次级面板底 */
+    --line:rgba(255,255,255,.08);   /* 细分隔线 */
+    --line2:rgba(255,255,255,.14);  /* 描边 */
+    --txt:#eef1f5;         /* 主文字 */
+    --txt2:#9aa3b0;        /* 次文字 */
+    --txt3:#5f6772;        /* 弱文字 */
+    --acc:#3ddc97;         /* 唯一强调色 青绿 */
+    --acc-soft:rgba(61,220,151,.14);
+    --up:#e06d6d;          /* 雾红 涨 */
+    --down:#52b788;        /* 雾绿 跌 */
+  }
+  * { margin:0; padding:0; box-sizing:border-box; -webkit-tap-highlight-color:transparent;
+      -webkit-user-select:none; user-select:none; -webkit-touch-callout:none; }
+  html,body { height:100%; overflow:hidden; background:var(--bg);
+              font-family:-apple-system,"PingFang SC",system-ui,sans-serif;
+              overscroll-behavior:none; position:fixed; width:100%; }
+  #wrap { position:relative; width:100vw; height:100vh; height:100dvh; touch-action:none; }
+  canvas { display:block; width:100%; height:100%; }
+
+  /* 顶部资金 — 纯文字，无面板边框无发光 */
+  #hud { position:absolute; top:0; left:0; right:0;
+         padding:calc(14px + env(safe-area-inset-top)) calc(16px + env(safe-area-inset-right)) 0 calc(16px + env(safe-area-inset-left));
+         display:flex; justify-content:flex-start; align-items:flex-start;
+         pointer-events:none; font-variant-numeric:tabular-nums; }
+  .panel { background:transparent; padding:0; }
+  #hud .lbl { font-size:10px; letter-spacing:2px; color:var(--txt3); text-transform:uppercase; }
+  #hud .big { font-size:24px; font-weight:600; color:var(--txt); line-height:1.1;
+              transition:transform .12s ease-out, color .2s; transform-origin:left center; display:inline-block; }
+  #hud .big.pop { transform:scale(1.08); }
+  #hud .big.warn { animation:cashShake .18s ease-in-out; color:#e06d6d; }
+  @keyframes cashShake { 0%,100%{transform:translateX(0)} 25%{transform:translateX(-2px)} 75%{transform:translateX(2px)} }
+  /* 仓位进度条 — 5 段式,实色填充,零发光。段位=已开仓笔数/POS_MAX_STEPS */
+  #posBar { display:flex; gap:2px; width:96px; height:4px; margin-top:1px; opacity:0; transition:opacity .18s; }
+  #posBar.show { opacity:1; }
+  #posBar .seg { flex:1; background:rgba(255,255,255,.08); border-radius:1px; transition:background .15s, opacity .15s; }
+  #posBar .seg.on { background:var(--acc); }
+  #posBar.long .seg.on { background:#e06d6d; }
+  #posBar.short .seg.on { background:#52b788; }
+  #posBar.full { animation:posBreathe 1.1s ease-in-out infinite; }
+  @keyframes posBreathe { 0%,100%{opacity:1} 50%{opacity:.55} }
+  /* Combo 押注计数 — 顶栏 posBar 右侧,连胜时点亮 */
+  #streakBox { display:inline-flex; align-items:center; gap:4px; margin-left:8px;
+               font-size:11px; font-weight:700; letter-spacing:1px; line-height:1;
+               opacity:0; transition:opacity .18s, color .15s;
+               font-variant-numeric:tabular-nums; }
+  #streakBox.show { opacity:1; }
+  #streakBox.tier1 { color:var(--txt2); }        /* x2  灰 */
+  #streakBox.tier2 { color:var(--acc); }         /* x3  青绿 */
+  #streakBox.tier3 { color:#e06d6d; }            /* x4  雾红 */
+  #streakBox.tier4 { color:#e06d6d; animation:streakBreathe .9s ease-in-out infinite; } /* x5 封顶 呼吸 */
+  @keyframes streakBreathe { 0%,100%{opacity:1} 50%{opacity:.55} }
+  #streakBox.pop { animation:streakPop .22s ease-out; }
+  @keyframes streakPop { 0%{transform:scale(1)} 40%{transform:scale(1.25)} 100%{transform:scale(1)} }
+  #streakBox.break { animation:streakBreak .3s ease-out; color:var(--txt3) !important; }
+  @keyframes streakBreak { 0%{transform:translateX(0)} 25%{transform:translateX(-3px)} 75%{transform:translateX(3px)} 100%{transform:translateX(0)} }
+  /* posBar 与 streak 一行排布 —— 用 flex-row 包裹 */
+  #posRow { display:flex; align-items:flex-start; margin-top:6px; }
+
+  /* ===== Roguelike Buff 卡系统 ===== */
+  /* 抽卡半暂停遮罩 */
+  #buffPickOv {
+    position:fixed; inset:0; z-index:70; display:none;
+    background:rgba(16,18,22,.72); backdrop-filter:blur(6px);
+    align-items:center; justify-content:center; flex-direction:column;
+    animation:buffFadeIn .22s ease-out;
+  }
+  @keyframes buffFadeIn { from{opacity:0} to{opacity:1} }
+  #buffPickOv .buffTitle {
+    color:var(--acc); font-size:14px; letter-spacing:6px;
+    font-weight:700; margin-bottom:4px; text-transform:uppercase;
+  }
+  #buffPickOv .buffSub {
+    color:var(--txt2); font-size:12px; letter-spacing:2px; margin-bottom:24px;
+  }
+  /* v1.0.57: 抽卡时的持仓状态条 —— 让玩家看清盈亏,决定选卡前是否落袋 */
+  #buffPickPosBar {
+    display:none; align-items:center; gap:10px;
+    padding:8px 14px; margin-bottom:14px;
+    background:rgba(24,27,34,.85); border:1px solid rgba(255,255,255,.08);
+    border-radius:4px; font-size:12px; letter-spacing:1px;
+    color:var(--txt2); font-family:inherit;
+  }
+  #buffPickPosBar.active { display:inline-flex; }
+  #buffPickPosBar .ppLbl { color:#7a838f; }
+  #buffPickPosBar .ppDir { font-weight:700; letter-spacing:2px; }
+  #buffPickPosBar .ppDir.long  { color:#e06d6d; }
+  #buffPickPosBar .ppDir.short { color:#52b788; }
+  #buffPickPosBar .ppPnl { font-weight:700; font-variant-numeric:tabular-nums; }
+  #buffPickPosBar .ppPnl.win  { color:#52b788; }
+  #buffPickPosBar .ppPnl.lose { color:#e06d6d; }
+  #buffPickPosBar .ppClose {
+    margin-left:6px; padding:4px 10px;
+    background:transparent; border:1px solid rgba(224,109,109,.5);
+    color:#e06d6d; border-radius:3px; cursor:pointer;
+    font-size:11px; letter-spacing:2px; user-select:none;
+    transition:background .15s, border-color .15s;
+  }
+  #buffPickPosBar .ppClose:hover { background:rgba(224,109,109,.12); border-color:#e06d6d; }
+  #buffPickPosBar .ppEmpty { color:#5a636e; font-style:normal; letter-spacing:2px; }
+  #buffPickCards {
+    display:flex; gap:16px; padding:0 12px;
+    flex-wrap:nowrap; max-width:100vw;
+  }
+  .buffCard {
+    width:150px; min-height:200px; padding:14px 12px 12px;
+    background:#181b22; border:1.5px solid rgba(255,255,255,.08);
+    border-radius:6px; cursor:pointer; user-select:none;
+    display:flex; flex-direction:column;
+    transition:transform .15s, border-color .15s, background .15s;
+    position:relative;
+  }
+  .buffCard:hover { transform:translateY(-4px); background:#1e2129; }
+  .buffCard.rarity-common { border-color:rgba(154,163,176,.3); }
+  .buffCard.rarity-common:hover { border-color:rgba(154,163,176,.7); }
+  .buffCard.rarity-rare { border-color:rgba(61,220,151,.35); }
+  .buffCard.rarity-rare:hover { border-color:var(--acc); }
+  .buffCard.rarity-legend { border-color:rgba(224,109,109,.4); }
+  .buffCard.rarity-legend:hover { border-color:#e06d6d; }
+  .buffCard .bcHead {
+    display:flex; justify-content:space-between; align-items:center;
+    margin-bottom:10px;
+  }
+  .buffCard .bcNum {
+    display:inline-block; width:20px; height:20px; line-height:20px;
+    text-align:center; font-size:11px; font-weight:700;
+    color:var(--txt3); background:rgba(255,255,255,.06); border-radius:50%;
+  }
+  .buffCard .bcRarity {
+    font-size:10px; letter-spacing:2px; font-weight:700;
+  }
+  .rarity-common .bcRarity { color:#9aa3b0; }
+  .rarity-rare .bcRarity { color:var(--acc); }
+  .rarity-legend .bcRarity { color:#e06d6d; }
+  .buffCard .bcName {
+    font-size:16px; font-weight:700; color:var(--txt); margin-bottom:8px;
+    letter-spacing:1px;
+  }
+  .buffCard .bcDesc {
+    font-size:12px; color:var(--txt2); line-height:1.5; flex:1;
+  }
+  .buffCard .bcHint {
+    font-size:10px; color:var(--txt3); margin-top:8px;
+    font-style:italic; letter-spacing:.5px;
+  }
+  /* Build 图标条 —— HUD 底部 */
+  #buildBar {
+    display:none; gap:4px; margin-top:8px; flex-wrap:wrap;
+    max-width:120px;
+  }
+  .buildDot {
+    display:inline-flex; align-items:center; justify-content:center;
+    padding:2px 5px; font-size:10px; font-weight:700;
+    background:rgba(255,255,255,.06); border-radius:3px;
+    letter-spacing:.5px; cursor:help;
+    border:1px solid transparent;
+  }
+  .buildDot.rarity-common { color:#9aa3b0; border-color:rgba(154,163,176,.25); }
+  .buildDot.rarity-rare   { color:var(--acc); border-color:rgba(61,220,151,.3); }
+  .buildDot.rarity-legend { color:#e06d6d; border-color:rgba(224,109,109,.35); }
+  /* ===== v1.0.60: 休整室(战后复盘室) —— 局间三段式:战绩 / 事件回顾 / 抽卡 ===== */
+  #intermissionOv {
+    position:fixed; inset:0; z-index:75; display:none;
+    background:rgba(16,18,22,.92); backdrop-filter:blur(8px);
+    align-items:center; justify-content:center;
+    animation:buffFadeIn .28s ease-out;
+    overflow-y:auto; padding:20px 12px;
+  }
+  #intermissionOv.show { display:flex; }
+  .imBox {
+    width:min(720px, 100%); max-width:100%;
+    display:flex; flex-direction:column; gap:14px;
+    padding:22px 22px 20px;
+    background:linear-gradient(180deg, rgba(28,32,40,.55), rgba(20,23,29,.55));
+    border:1px solid rgba(61,220,151,.14); border-radius:10px;
+    box-shadow:0 24px 60px rgba(0,0,0,.5);
+  }
+  .imHead {
+    display:flex; justify-content:space-between; align-items:baseline;
+    padding-bottom:10px; border-bottom:1px solid rgba(255,255,255,.06);
+  }
+  .imTitle {
+    color:var(--acc); font-size:15px; letter-spacing:6px;
+    font-weight:700; text-transform:uppercase;
+  }
+  .imRound {
+    color:var(--txt3); font-size:12px; letter-spacing:3px;
+    font-variant-numeric:tabular-nums;
+  }
+  .imSection { display:flex; flex-direction:column; gap:8px; }
+  .imSecLabel {
+    color:var(--txt3); font-size:10px; letter-spacing:4px;
+    font-weight:700; text-transform:uppercase;
+  }
+  /* 战绩块 */
+  .imScorecard {
+    display:grid; grid-template-columns:1fr 1fr 1fr; gap:10px;
+    padding:12px 14px; background:rgba(24,27,34,.6);
+    border:1px solid rgba(255,255,255,.05); border-radius:6px;
+  }
+  .imStock {
+    grid-column:1 / -1; display:flex; justify-content:space-between; align-items:baseline;
+    padding-bottom:8px; margin-bottom:2px; border-bottom:1px solid rgba(255,255,255,.05);
+  }
+  .imStockKey { color:var(--txt); font-size:14px; font-weight:700; letter-spacing:2px; }
+  .imStockDate { color:var(--txt3); font-size:11px; letter-spacing:1px; font-variant-numeric:tabular-nums; }
+  .imStat { display:flex; flex-direction:column; gap:2px; }
+  .imStatLbl { color:var(--txt3); font-size:10px; letter-spacing:2px; }
+  .imStatVal {
+    color:var(--txt); font-size:15px; font-weight:700;
+    font-variant-numeric:tabular-nums; letter-spacing:.5px;
+  }
+  .imStatVal.up   { color:#3ddc97; }
+  .imStatVal.down { color:#e06d6d; }
+  /* 事件回顾块 */
+  .imEvents {
+    display:flex; flex-direction:column; gap:6px;
+    padding:10px 12px; background:rgba(24,27,34,.4);
+    border:1px solid rgba(255,255,255,.04); border-radius:6px;
+  }
+  .imEvent {
+    display:grid; grid-template-columns:22px 1fr auto; gap:10px;
+    align-items:center; padding:7px 4px;
+    border-bottom:1px dashed rgba(255,255,255,.05);
+    font-size:12px; letter-spacing:.5px;
+  }
+  .imEvent:last-child { border-bottom:none; }
+  .imEvIcon { font-size:14px; text-align:center; opacity:.9; }
+  .imEvBody { display:flex; flex-direction:column; gap:2px; min-width:0; }
+  .imEvHead {
+    display:flex; align-items:baseline; gap:8px; flex-wrap:wrap;
+    color:var(--txt2); font-size:11px; letter-spacing:1px;
+  }
+  .imEvDate { color:var(--txt3); font-variant-numeric:tabular-nums; }
+  .imEvLabel { color:var(--txt); font-weight:700; letter-spacing:1.5px; }
+  .imEvJudge {
+    font-size:12px; letter-spacing:1px; margin-top:2px;
+  }
+  .imEvJudge.hit   { color:#3ddc97; }   /* 吃到 / 押中 */
+  .imEvJudge.hurt  { color:#e06d6d; }   /* 被套 / 反噬 */
+  .imEvJudge.safe  { color:var(--txt3); }   /* 空仓落袋 */
+  .imEvPct {
+    font-size:12px; font-weight:700; font-variant-numeric:tabular-nums;
+    letter-spacing:.5px;
+  }
+  .imEvPct.up   { color:#3ddc97; }
+  .imEvPct.down { color:#e06d6d; }
+  /* 抽卡块 */
+  .imCards {
+    display:flex; gap:12px; justify-content:center; flex-wrap:wrap;
+  }
+  .imCards .buffCard { width:180px; min-height:180px; }
+  /* 底部按钮 */
+  .imFoot { display:flex; justify-content:center; margin-top:6px; }
+  .imSkipBtn {
+    padding:8px 24px; background:transparent;
+    border:1px solid rgba(154,163,176,.35); color:var(--txt2);
+    border-radius:4px; cursor:pointer; user-select:none;
+    font-size:12px; letter-spacing:3px; font-family:inherit;
+    transition:background .15s, border-color .15s, color .15s;
+  }
+  .imSkipBtn:hover {
+    background:rgba(255,255,255,.04); border-color:rgba(154,163,176,.7);
+    color:var(--txt);
+  }
+  #score .big { color:var(--acc); }
+  /* v1.0.58: 赛季徽章 —— HUD 资金下方,letter-spacing 拉开显信息 */
+  #seasonBadge {
+    display:none; margin-top:4px; padding:3px 9px 3px 8px;
+    background:rgba(24,27,34,.7);
+    border:1px solid rgba(61,220,151,.28);
+    border-radius:10px;
+    color:var(--txt2); font-size:11px; letter-spacing:1.5px;
+    font-variant-numeric:tabular-nums;
+    max-width:fit-content;
+  }
+  #seasonBadge.show { display:inline-block; }
+  #seasonBadge .sbR { color:#3ddc97; font-weight:700; }
+  #seasonBadge .sbP { color:var(--txt); }
+  #priceBanner #spdBar { height:3px; margin-top:7px; background:rgba(255,255,255,.08); border-radius:2px; overflow:hidden; }
+  #spdFill { height:100%; width:0%; background:var(--acc); transition:width .12s linear; }
+  /* combo 漂浮提示 — 去斜体去发光 */
+  #combo { position:absolute; top:32%; left:50%; transform:translateX(-50%);
+           text-align:center; pointer-events:none; opacity:0; transition:opacity .2s; }
+  #combo .c1 { font-size:34px; font-weight:700; color:var(--acc); }
+  #combo .c2 { font-size:15px; font-weight:600; color:var(--txt2); letter-spacing:1px; margin-top:2px; }
+
+  /* 居中实时股价 — 无边框无发光，纯字 */
+  #priceBanner { position:absolute; top:calc(78px + env(safe-area-inset-top)); left:50%;
+                 transform:translateX(-50%); text-align:center; pointer-events:none;
+                 z-index:8; font-variant-numeric:tabular-nums; }
+  #priceBanner .pbSym { font-size:11px; font-weight:600; color:var(--txt2); letter-spacing:1px; margin-bottom:2px; }
+  #priceBanner .pbDay { font-size:9px; letter-spacing:2px; color:var(--txt3); font-weight:600;
+                        text-transform:uppercase; margin-bottom:3px; }
+  #priceBanner .pbRow { display:flex; align-items:baseline; gap:9px; justify-content:center; }
+  #priceBanner .pbPrice { font-size:30px; font-weight:600; color:var(--txt); line-height:1; }
+  #priceBanner .pbChg { font-size:18px; font-weight:600; line-height:1; }
+  @media (max-height:430px){
+    #priceBanner { top:calc(62px + env(safe-area-inset-top)); }
+    #priceBanner .pbPrice { font-size:23px; }
+    #priceBanner .pbChg { font-size:13px; }
+  }
+  /* 持仓盈亏指示条 — 细描边，无发光 */
+  #posBox { position:absolute; left:50%; transform:translateX(-50%);
+            top:calc(166px + env(safe-area-inset-top)); z-index:9; pointer-events:none;
+            display:flex; align-items:center; gap:8px; padding:5px 14px; border-radius:8px;
+            white-space:nowrap; max-width:calc(100vw - 24px);
+            background:var(--bg2); border:1px solid var(--line);
+            font-weight:600; letter-spacing:.3px; opacity:.6; transition:opacity .15s, border-color .15s; }
+  #posBox .pbHint { font-size:10px; color:var(--txt2); font-weight:500; overflow:hidden; text-overflow:ellipsis; min-width:0; }
+  #posBox .pbDir { font-size:13px; color:var(--txt); flex:none; }
+  #posBox .pbPnl { font-size:19px; font-weight:700; flex:none; }
+  #posBox.show { opacity:1; }
+  #posBox.win  { border-color:rgba(82,183,136,.5); }
+  #posBox.win .pbPnl { color:var(--down); }
+  #posBox.lose { border-color:rgba(224,109,109,.5); }
+  #posBox.lose .pbPnl { color:var(--up); }
+  @media(max-height:430px){ #posBox{ top:calc(132px + env(safe-area-inset-top)); padding:3px 10px; }
+    #posBox .pbPnl{ font-size:15px; } #posBox .pbDir{ font-size:11px; } #posBox .pbHint{ font-size:9px; } }
+  /* 持仓边缘泛光 — 保留极淡的方向反馈（这是核心机制的体感，留低强度） */
+  #posGlow { position:absolute; inset:0; z-index:6; pointer-events:none;
+             box-shadow:inset 0 0 var(--pg-blur,0px) var(--pg-spread,0px) var(--pg-col,transparent);
+             opacity:var(--pg-op,0); transition:opacity .12s linear; }
+  /* 历史事件 toast — 细描边，强调色，无发光 */
+  #evtToast { position:absolute; top:calc(70px + env(safe-area-inset-top)); left:50%;
+              transform:translateX(-50%) translateY(-8px); z-index:9; pointer-events:none;
+              background:var(--bg2); border:1px solid var(--line2); border-radius:8px;
+              padding:6px 14px; display:flex; align-items:center; gap:9px; white-space:nowrap;
+              opacity:0; transition:opacity .25s, transform .25s; }
+  #evtToast.show { opacity:1; transform:translateX(-50%) translateY(0); }
+  #evtToast .evDate { font-size:12px; font-weight:700; color:var(--acc); }
+  #evtToast .evLabel { font-size:13px; font-weight:500; color:var(--txt); }
+
+  #ctrl { position:absolute; bottom:0; left:0; right:0;
+          padding:0 calc(18px + env(safe-area-inset-right)) calc(26px + env(safe-area-inset-bottom)) calc(18px + env(safe-area-inset-left));
+          display:flex; justify-content:space-between; align-items:flex-end; gap:14px; }
+  .btn { pointer-events:auto; user-select:none; border-radius:50%;
+         display:flex; align-items:center; justify-content:center; font-weight:600;
+         border:1px solid var(--line2); color:var(--txt);
+         background:var(--bg2);
+         transition:transform .06s, background .1s; line-height:1.2; text-align:center; }
+  .btn:active { transform:scale(.92); }
+  #posBtns { pointer-events:none; display:flex; flex-direction:column; gap:10px;
+             align-self:flex-end; margin-bottom:14px; }
+  #driveStack { display:flex; flex-direction:column; align-items:center; gap:12px; }
+  /* 交易按钮 — 统一中性底，方向色只在 held 时点亮(实色) */
+  .posBtn { pointer-events:auto; user-select:none; width:90px; height:68px; border-radius:14px;
+            display:flex; flex-direction:column; align-items:center; justify-content:center;
+            font-size:15px; font-weight:600; line-height:1.2; text-align:center;
+            border:1px solid var(--line2); background:var(--bg2);
+            transition:transform .06s, background .12s, border-color .12s; color:var(--txt2); }
+  .posBtn:active { transform:scale(.9); }
+  .posBtn.tap { transform:scale(.86); }
+  /* 方向箭头图标 — 线性描边，随按钮 currentColor 自动变色（held 时转白） */
+  .posBtn .psIco { width:22px; height:22px; margin-bottom:2px; display:block;
+                   fill:none; stroke:currentColor; stroke-width:2.4;
+                   stroke-linecap:round; stroke-linejoin:round; }
+  .posBtn .psTxt { font-size:14px; line-height:1.1; }
+  #longBtn.held { background:var(--up); border-color:var(--up); color:#fff; }
+  #shortBtn.held { background:var(--down); border-color:var(--down); color:#fff; }
+  /* 秀一下(跳跃) — 次要小按钮 */
+  #gas { width:60px; height:60px; font-size:11px; background:var(--bg2);
+         border-color:var(--line2); color:var(--txt2); }
+  #gas.on { background:var(--acc-soft); border-color:var(--acc); color:var(--acc); }
+  /* 平仓 — 主操作大按钮，强调色 */
+  #closeBtn { width:92px; height:92px; font-size:15px; background:var(--acc);
+           border:none; color:#0c1a13; font-weight:700; }
+  #closeBtn.on { background:#2fc586; }
+  #closeBtn.disabled { opacity:.3; background:var(--bg2); border:1px solid var(--line2); color:var(--txt3); }
+  #closeBtn.armed { animation:armPulse 1.6s ease-in-out infinite; }
+  @keyframes armPulse { 0%,100%{ opacity:1; } 50%{ opacity:.78; } }
+  @media (max-height:430px){
+    #gas { width:50px; height:50px; font-size:10px; }
+    #closeBtn { width:74px; height:74px; font-size:13px; }
+    #driveStack { gap:9px; }
+    #ctrl { padding-bottom:calc(14px + env(safe-area-inset-bottom)); }
+  }
+
+  /* ===== 全屏覆盖层(首页/抽卡/结算/行情库) — 纯炭灰底，无渐变光晕 ===== */
+  .overlay { position:absolute; inset:0; display:flex; flex-direction:column;
+             align-items:center; justify-content:center; text-align:center;
+             z-index:20; padding:28px; background:var(--bg); }
+  /* 首页背景：底部一排极淡 K 线剪影 + 微妙渐变，消除"背后全空"的悬空感 */
+  #startOv::before { content:""; position:absolute; inset:0; z-index:-1; pointer-events:none;
+             background:
+               linear-gradient(180deg, var(--bg) 0%, var(--bg) 42%, rgba(16,18,22,0) 68%, rgba(16,18,22,0) 100%),
+               url("data:image/svg+xml,%3Csvg%20xmlns%3D%22http%3A//www.w3.org/2000/svg%22%20viewBox%3D%220%200%20480%20160%22%20width%3D%22480%22%20height%3D%22160%22%3E%3Cline%20x1%3D%2219.0%22%20y1%3D%2258%22%20x2%3D%2219.0%22%20y2%3D%22118%22%20stroke%3D%22%232a2f38%22%20stroke-width%3D%221.4%22/%3E%3Crect%20x%3D%2210%22%20y%3D%2270%22%20width%3D%2218%22%20height%3D%2228%22%20rx%3D%222%22%20fill%3D%22%232a2f38%22/%3E%3Cline%20x1%3D%2257.0%22%20y1%3D%2240%22%20x2%3D%2257.0%22%20y2%3D%22104%22%20stroke%3D%22%232a2f38%22%20stroke-width%3D%221.4%22/%3E%3Crect%20x%3D%2248%22%20y%3D%2250%22%20width%3D%2218%22%20height%3D%2240%22%20rx%3D%222%22%20fill%3D%22%232a2f38%22/%3E%3Cline%20x1%3D%2295.0%22%20y1%3D%2228%22%20x2%3D%2295.0%22%20y2%3D%2284%22%20stroke%3D%22%232a2f38%22%20stroke-width%3D%221.4%22/%3E%3Crect%20x%3D%2286%22%20y%3D%2238%22%20width%3D%2218%22%20height%3D%2230%22%20rx%3D%222%22%20fill%3D%22%232a2f38%22/%3E%3Cline%20x1%3D%22133.0%22%20y1%3D%2248%22%20x2%3D%22133.0%22%20y2%3D%2296%22%20stroke%3D%22%232a2f38%22%20stroke-width%3D%221.4%22/%3E%3Crect%20x%3D%22124%22%20y%3D%2258%22%20width%3D%2218%22%20height%3D%2222%22%20rx%3D%222%22%20fill%3D%22%232a2f38%22/%3E%3Cline%20x1%3D%22171.0%22%20y1%3D%2234%22%20x2%3D%22171.0%22%20y2%3D%22104%22%20stroke%3D%22%232a2f38%22%20stroke-width%3D%221.4%22/%3E%3Crect%20x%3D%22162%22%20y%3D%2244%22%20width%3D%2218%22%20height%3D%2246%22%20rx%3D%222%22%20fill%3D%22%232a2f38%22/%3E%3Cline%20x1%3D%22209.0%22%20y1%3D%2220%22%20x2%3D%22209.0%22%20y2%3D%2272%22%20stroke%3D%22%232a2f38%22%20stroke-width%3D%221.4%22/%3E%3Crect%20x%3D%22200%22%20y%3D%2230%22%20width%3D%2218%22%20height%3D%2228%22%20rx%3D%222%22%20fill%3D%22%232a2f38%22/%3E%3Cline%20x1%3D%22247.0%22%20y1%3D%2242%22%20x2%3D%22247.0%22%20y2%3D%22100%22%20stroke%3D%22%232a2f38%22%20stroke-width%3D%221.4%22/%3E%3Crect%20x%3D%22238%22%20y%3D%2252%22%20width%3D%2218%22%20height%3D%2234%22%20rx%3D%222%22%20fill%3D%22%232a2f38%22/%3E%3Cline%20x1%3D%22285.0%22%20y1%3D%2230%22%20x2%3D%22285.0%22%20y2%3D%2280%22%20stroke%3D%22%232a2f38%22%20stroke-width%3D%221.4%22/%3E%3Crect%20x%3D%22276%22%20y%3D%2240%22%20width%3D%2218%22%20height%3D%2226%22%20rx%3D%222%22%20fill%3D%22%232a2f38%22/%3E%3Cline%20x1%3D%22323.0%22%20y1%3D%2250%22%20x2%3D%22323.0%22%20y2%3D%2294%22%20stroke%3D%22%232a2f38%22%20stroke-width%3D%221.4%22/%3E%3Crect%20x%3D%22314%22%20y%3D%2260%22%20width%3D%2218%22%20height%3D%2220%22%20rx%3D%222%22%20fill%3D%22%232a2f38%22/%3E%3Cline%20x1%3D%22361.0%22%20y1%3D%2224%22%20x2%3D%22361.0%22%20y2%3D%2290%22%20stroke%3D%22%232a2f38%22%20stroke-width%3D%221.4%22/%3E%3Crect%20x%3D%22352%22%20y%3D%2234%22%20width%3D%2218%22%20height%3D%2242%22%20rx%3D%222%22%20fill%3D%22%232a2f38%22/%3E%3Cline%20x1%3D%22399.0%22%20y1%3D%2246%22%20x2%3D%22399.0%22%20y2%3D%22100%22%20stroke%3D%22%232a2f38%22%20stroke-width%3D%221.4%22/%3E%3Crect%20x%3D%22390%22%20y%3D%2256%22%20width%3D%2218%22%20height%3D%2230%22%20rx%3D%222%22%20fill%3D%22%232a2f38%22/%3E%3Cline%20x1%3D%22437.0%22%20y1%3D%2236%22%20x2%3D%22437.0%22%20y2%3D%2296%22%20stroke%3D%22%232a2f38%22%20stroke-width%3D%221.4%22/%3E%3Crect%20x%3D%22428%22%20y%3D%2246%22%20width%3D%2218%22%20height%3D%2236%22%20rx%3D%222%22%20fill%3D%22%232a2f38%22/%3E%3C/svg%3E");
+             background-repeat:no-repeat,repeat-x;
+             background-position:center,bottom -2px center;
+             background-size:cover,auto 130px;
+             opacity:1; }
+  #startOv::before { /* 剪影整体淡化 */ }
+  #startOv > * { position:relative; z-index:1; }
+  .overlay h1 { font-size:30px; margin-bottom:8px; letter-spacing:.5px; font-weight:600; color:var(--txt); }
+  .overlay h1 .em { color:var(--acc); }
+  /* 首页游戏徽标：AI 生成的青绿摩托·K线赛道圆角徽标，轻微浮动呼吸 */
+  #gameIcon { width:112px; height:112px; margin-bottom:16px; animation:iconFloat 3.4s ease-in-out infinite; }
+  #gameIcon img { width:100%; height:100%; display:block; border-radius:20px; }
+  @keyframes iconFloat { 0%,100%{ transform:translateY(0); } 50%{ transform:translateY(-5px); } }
+  .overlay p { color:var(--txt2); font-size:13px; line-height:1.7; max-width:330px; margin-bottom:8px; }
+  .overlay p b { color:var(--txt); font-weight:600; }
+  .overlay .stat { color:var(--acc); font-size:44px; font-weight:600; margin:2px 0; }
+  .overlay .stat .u { font-size:15px; color:var(--txt2); font-weight:400; }
+  .overlay .sub2 { font-size:12px; color:var(--txt2); margin-top:2px; }
+  .best { color:var(--txt2); font-size:13px; font-weight:500; margin-top:6px; }
+  /* ===== 结算失败态：破产/翻车时整页染上克制的失败重量感（红标题+红分数+顶部极淡红雾，零发光） ===== */
+  #endOv.lost { background:radial-gradient(120% 80% at 50% 0%, rgba(224,109,109,.10) 0%, rgba(224,109,109,.03) 38%, var(--bg) 70%); }
+  #endOv.lost #endTitle { color:var(--up); }
+  #endOv.lost #endScore { color:var(--up); }
+  /* 破产分数 $0 旁的\"血本无归\"对比小字 */
+  #endLoss { color:var(--up); font-size:13px; font-weight:600; margin-top:-2px; letter-spacing:.3px; }
+  #endLoss.hide { display:none; }
+  /* 主按钮 — 实色青绿，无斜体无发光 */
+  .start-btn { margin-top:20px; pointer-events:auto; cursor:pointer; box-sizing:border-box;
+               padding:13px 40px; border-radius:12px; font-size:16px; font-weight:600;
+               color:#0c1a13; background:var(--acc); border:none; letter-spacing:.3px;
+               transition:transform .1s, background .15s; }
+  .start-btn:active { transform:scale(.96); }
+  .start-btn:hover { background:#4ee6a4; }
+  /* 首页「出发」按钮：缓慢呼吸（极轻微缩放脉动），吸引点击；按下时暂停以免与 active 缩放打架 */
+  @keyframes breathe { 0%,100%{ transform:scale(1); } 50%{ transform:scale(1.045); } }
+  #startBtn { animation:breathe 2.6s ease-in-out infinite; }
+  #startBtn:active { animation:none; }
+  /* 次按钮 — 1px 描边，透明底 */
+  .start-btn.ghost { background:transparent; color:var(--txt); border:1px solid var(--line2); }
+  .start-btn.ghost:hover { background:rgba(255,255,255,.04); border-color:var(--txt2); }
+  .picker { display:flex; gap:8px; margin-top:14px; flex-wrap:wrap; justify-content:center; pointer-events:auto; max-width:340px; }
+  .chip { padding:7px 13px; border-radius:8px; font-size:12px; font-weight:500; cursor:pointer;
+          border:1px solid var(--line2); color:var(--txt2); background:transparent; }
+  .chip.sel { background:var(--acc-soft); border-color:var(--acc); color:var(--acc); }
+  /* 关卡卡片 — 平面，无堆叠阴影无发光 */
+  .trackCard { pointer-events:auto; cursor:pointer; width:150px; padding:12px; border-radius:12px;
+               border:1px solid var(--line2); background:var(--bg2); text-align:left;
+               transition:transform .08s, border-color .12s, background .12s; position:relative; }
+  .trackCard:active { transform:scale(.98); }
+  .trackCard.sel { border-color:var(--acc); background:var(--acc-soft); }
+  .trackCard.locked { opacity:.4; cursor:not-allowed; }
+  .trackCard .tcTop { display:flex; align-items:center; gap:6px; }
+  .trackCard .tcName { font-size:16px; font-weight:600; color:var(--txt); }
+  .trackCard .tcTier { font-size:10px; color:var(--txt2); margin-left:auto; padding:2px 7px; border-radius:6px;
+                       background:rgba(255,255,255,.06); font-weight:600; }
+  .trackCard .tcStars { font-size:13px; letter-spacing:1px; margin-top:6px; color:var(--txt3); }
+  .trackCard .tcStars b { color:var(--acc); font-weight:400; }
+  .trackCard .tcBest { font-size:10px; color:var(--txt2); margin-top:3px; }
+  .trackCard .tcLock { font-size:10px; color:var(--txt2); margin-top:4px; }
+  #progBar { font-size:12px; color:var(--txt2); margin-top:4px; }
+  #progBar b { color:var(--acc); font-size:15px; }
+  .lib-btn { margin-top:16px; pointer-events:auto; cursor:pointer; box-sizing:border-box;
+             background:none; color:var(--txt3); border:none;
+             padding:6px 8px; font-size:13px; font-weight:400; letter-spacing:.3px;
+             text-decoration:underline; text-underline-offset:3px; text-decoration-color:var(--line2);
+             transition:color .15s; }
+  .lib-btn:active { opacity:.6; }
+  .lib-btn:hover { color:var(--txt2); text-decoration-color:var(--txt3); }
+  /* ===== 开局抽卡 — 极简卡片，无老虎机霓虹 ===== */
+  #cardOv { gap:0; }
+  #drawHint { color:var(--txt2); font-size:13px; letter-spacing:2px;
+              margin-bottom:20px; animation:pulseHint 1.2s ease-in-out infinite; }
+  @keyframes pulseHint { 0%,100%{opacity:.45;} 50%{opacity:1;} }
+  #slot { width:min(76vw,290px); padding:32px 20px 28px; border-radius:16px;
+          background:var(--bg2); border:1px solid var(--line2);
+          position:relative; overflow:hidden; text-align:center; }
+  #slot.locked { animation:slotLock .45s cubic-bezier(.16,1,.3,1); }
+  @keyframes slotLock { 0%{transform:scale(.85);} 55%{transform:scale(1.06);} 100%{transform:scale(1);} }
+  #slotEmoji { display:none; }   /* 去 emoji */
+  #slotName { font-size:30px; font-weight:600; color:var(--txt); margin-top:0; letter-spacing:.5px; }
+  #slotCls { display:inline-block; margin-top:10px; font-size:12px; font-weight:600; letter-spacing:.5px;
+             color:var(--txt2); padding:3px 12px; border-radius:6px; background:rgba(255,255,255,.06);
+             border:1px solid var(--line); min-height:18px; }
+  #slotDesc { color:var(--txt2); font-size:14px; margin-top:18px; min-height:20px; max-width:280px;
+              opacity:0; transition:opacity .4s; line-height:1.5; }
+  #slotDesc.show { opacity:1; }
+  /* ===== 行情库列表 ===== */
+  #libList { width:min(86vw,360px); max-height:52vh; overflow-y:auto; margin-top:8px;
+             pointer-events:auto; display:flex; flex-direction:column; gap:8px; }
+  .libRow { display:flex; align-items:center; gap:12px; padding:13px 14px; border-radius:10px;
+            background:var(--bg2); border:1px solid var(--line); cursor:pointer;
+            transition:transform .1s, border-color .15s; text-align:left; }
+  .libRow:active { transform:scale(.98); }
+  .libRow:hover { border-color:var(--line2); }
+  .libRow .lrEmoji { display:none; }
+  .libRow .lrMid { flex:1; min-width:0; }
+  .libRow .lrName { font-size:16px; font-weight:600; color:var(--txt); }
+  .libRow .lrSub { font-size:11px; color:var(--txt2); margin-top:2px; }
+  .libRow .lrBest { text-align:right; }
+  .libRow .lrBestVal { font-size:15px; font-weight:700; color:var(--acc); }
+  .libRow .lrStars { font-size:11px; color:var(--txt3); letter-spacing:1px; margin-top:2px; }
+  #libEmpty { color:var(--txt2); font-size:14px; margin:24px 0; }
+
+  /* ===== 结算星级 ===== */
+  .stars { font-size:30px; letter-spacing:8px; margin:6px 0 2px; color:var(--txt3); }
+  .stars .on { color:var(--acc); animation:pop .35s; }
+  @keyframes pop { 0%{transform:scale(0);} 70%{transform:scale(1.25);} 100%{transform:scale(1);} }
+  .unlock { margin-top:10px; padding:9px 16px; border-radius:10px; font-size:13px; font-weight:600;
+            color:var(--acc); background:var(--acc-soft); border:1px solid var(--acc); }
+  .endActions { width:min(86vw,340px); margin:16px auto 0; }
+  .endActions .start-btn { margin-top:0; }
+  .endBtns { display:flex; gap:10px; margin-top:10px; justify-content:center; }
+  .endBtns .start-btn { flex:1; padding-left:0; padding-right:0; }
+  /* v1.0.58: 结算面板赛季徽章 —— 位于分数下方,一行 pill 状 */
+  #endSeason {
+    display:none; margin:12px auto 6px; padding:6px 14px;
+    background:rgba(24,27,34,.7); border:1px solid rgba(61,220,151,.35);
+    border-radius:14px; color:var(--txt2); font-size:12px; letter-spacing:2px;
+    font-family:inherit; font-weight:500;
+    max-width:fit-content;
+  }
+  #endSeason.show { display:inline-block; }
+  #endSeason .esRound { color:#3ddc97; font-weight:700; }
+  #endSeason .esPeak  { color:var(--txt); font-variant-numeric:tabular-nums; }
+  #endSeason .esGrow  { font-weight:700; font-variant-numeric:tabular-nums; }
+  #endSeason .esGrow.up   { color:#e06d6d; }
+  #endSeason .esGrow.down { color:#52b788; }
+  #endSeason .esEnd { color:#e06d6d; font-weight:700; }
+  #endSeason .esDone { color:#ffcf3a; font-weight:700; letter-spacing:1px; }   /* v1.0.59: 赛程达成金色徽章 */
+
+  /* ===== v1.0.59: 赛程终局大屏 —— 深炭灰底 + 青绿主色,零发光,金色仅评级字符 ===== */
+  #matchRecapOv {
+    display:flex; flex-direction:column; justify-content:flex-start; align-items:center;
+    padding:44px 20px 24px; gap:14px; overflow-y:auto;
+  }
+  #mrHeader { text-align:center; }
+  #mrTitle { font-size:22px; font-weight:700; color:var(--txt); letter-spacing:2px; }
+  #mrSub { font-size:12px; color:var(--txt2); margin-top:4px; letter-spacing:1px; }
+  #mrGrade {
+    display:flex; align-items:baseline; gap:12px;
+    padding:14px 26px; border-radius:14px;
+    background:rgba(24,27,34,.7);
+    border:1px solid rgba(61,220,151,.24);
+  }
+  #mrGradeLetter { font-size:64px; font-weight:800; line-height:1; letter-spacing:2px; font-variant-numeric:tabular-nums; }
+  #mrGradeLabel  { font-size:14px; color:var(--txt2); letter-spacing:3px; }
+  /* 各评级配色 */
+  #mrGrade.g-S #mrGradeLetter { color:#ffcf3a; }              /* 金 */
+  #mrGrade.g-A #mrGradeLetter { color:#3ddc97; }              /* 青绿 */
+  #mrGrade.g-B #mrGradeLetter { color:#7db8ff; }              /* 蓝 */
+  #mrGrade.g-C #mrGradeLetter { color:#c9a26a; }              /* 铜 */
+  #mrGrade.g-D #mrGradeLetter { color:#e06d6d; }              /* 雾红 */
+  #mrStats {
+    display:flex; gap:10px; width:100%; max-width:380px; justify-content:space-between;
+  }
+  .mrStat {
+    flex:1; padding:10px 8px; border-radius:10px;
+    background:rgba(24,27,34,.55); border:1px solid rgba(154,163,176,.14);
+    text-align:center;
+  }
+  .mrStat .mrK { font-size:10px; color:var(--txt2); letter-spacing:1.5px; }
+  .mrStat .mrV { font-size:16px; color:var(--txt); font-weight:700; font-variant-numeric:tabular-nums; margin-top:4px; }
+  .mrStat .mrV.up   { color:#3ddc97; }
+  .mrStat .mrV.down { color:#e06d6d; }
+  #mrRoundsWrap, #mrBuildWrap { width:100%; max-width:380px; }
+  .mrRoundsLbl {
+    font-size:10px; color:var(--txt2); letter-spacing:2px; margin-bottom:6px; padding-left:2px;
+  }
+  #mrRounds { display:grid; grid-template-columns:repeat(4, 1fr); gap:6px; }
+  .mrRound {
+    padding:8px 4px; border-radius:8px;
+    background:rgba(24,27,34,.55); border:1px solid rgba(154,163,176,.12);
+    text-align:center; font-variant-numeric:tabular-nums;
+  }
+  .mrRound .mrRNum { font-size:9px; color:var(--txt2); letter-spacing:1px; }
+  .mrRound .mrRKey { font-size:12px; color:var(--txt); font-weight:600; margin-top:2px; }
+  .mrRound .mrRDelta { font-size:11px; font-weight:700; margin-top:2px; }
+  .mrRound.up   .mrRDelta { color:#3ddc97; }
+  .mrRound.down .mrRDelta { color:#e06d6d; }
+  .mrRound.up   { border-color:rgba(61,220,151,.22); }
+  .mrRound.down { border-color:rgba(224,109,109,.22); }
+  #mrBuild { display:flex; flex-wrap:wrap; gap:6px; }
+  .mrBuff {
+    padding:5px 10px; border-radius:8px; font-size:11px;
+    background:rgba(24,27,34,.6); border:1px solid rgba(154,163,176,.16);
+    color:var(--txt);
+  }
+  .mrBuff.rarity-rare   { border-color:rgba(61,220,151,.34); color:#3ddc97; }
+  .mrBuff.rarity-legend { border-color:rgba(224,109,109,.36); color:#e06d6d; }
+  #cashOutBtn {
+    /* v1.0.58: 青绿 ghost 描边,和主题铁律对齐 —— 无金色/无 emoji/无发光 */
+    display:block; margin:12px auto 0; padding:8px 18px;
+    background:transparent;
+    border:1px solid rgba(61,220,151,.35);
+    color:var(--txt2);
+    border-radius:4px;
+    letter-spacing:3px; font-size:12px;
+    cursor:pointer; user-select:none;
+    transition:border-color .15s, color .15s;
+  }
+  #cashOutBtn:hover { border-color:rgba(61,220,151,.7); color:#3ddc97; }
+  .textBtn { pointer-events:auto; cursor:pointer; margin-top:14px; background:none; border:none;
+             color:var(--txt3); font-size:13px; padding:6px; }
+  .hide { display:none !important; }
+  #hint { position:absolute; bottom:130px; left:0; right:0; text-align:center;
+          color:var(--txt2); font-size:12px; pointer-events:none; transition:opacity .5s; }
+  /* 竖屏提示 toast */
+  #rotate { position:fixed; top:max(10px,env(safe-area-inset-top)); left:50%;
+            transform:translateX(-50%) translateY(-6px); opacity:0;
+            z-index:50; display:none; white-space:nowrap;
+            flex-direction:row; align-items:center; gap:8px;
+            background:var(--bg2);
+            padding:7px 8px 7px 13px; border-radius:10px;
+            border:1px solid var(--line2);
+            transition:opacity .35s ease, transform .35s ease; }
+  body.show-rotate #rotate { display:flex; opacity:1; transform:translateX(-50%) translateY(0); }
+  #rotate .rotIcon { font-size:16px; color:var(--acc); animation:rot 2.4s ease-in-out infinite; flex:none; }
+  @keyframes rot { 0%,100%{transform:rotate(0)} 50%{transform:rotate(-90deg)} }
+  #rotate .rotTxt { font-size:12.5px; font-weight:600; color:var(--txt); }
+  #rotate .rotSub { display:none; }
+  #rotate .rotBody { flex:none; }
+  #rotate #rotDismiss { flex:none; margin:0; padding:5px 12px; border-radius:8px;
+            font-size:11.5px; font-weight:600; color:#0c1a13;
+            background:var(--acc); border:none; cursor:pointer; }
+  #rotate #rotDismiss:active { transform:scale(.94); }
+  @media (orientation:portrait) and (max-width:820px){
+    body:not(.rot-dismissed):not(.playing) #rotate { display:flex; opacity:1; transform:translateX(-50%) translateY(0); }
+    /* 竖屏：首页重心略下移到中线偏下，方便拇指够按钮，又不至于上方大片空 */
+    #startOv { justify-content:center; padding-top:8vh; padding-bottom:calc(28px + env(safe-area-inset-bottom)); }
+    /* 竖屏：拉开标题说明区与按钮的间距 —— 说明上提、按钮下沉，呼吸感更足 */
+    #startOv > p:last-of-type { margin-bottom:6vh; }
+    #startBtn { margin-top:0; min-width:min(270px,72vw); padding:16px 40px; font-size:17px; }
+    #startOv .lib-btn { margin-top:22px; }
+  }
+  body.playing #rotate { display:none !important; }
+  /* 角标圆按钮 — 统一中性 */
+  #bgmBtn { position:fixed; top:calc(14px + env(safe-area-inset-top)); transform:none; right:max(16px,env(safe-area-inset-right));
+            width:34px; height:34px; border-radius:50%; background:var(--bg2);
+            border:1px solid var(--line2); color:var(--txt2); font-size:15px;
+            display:flex; align-items:center; justify-content:center; cursor:pointer; z-index:60; opacity:.8; }
+  #homeBtn { position:fixed; top:calc(14px + env(safe-area-inset-top)); left:max(16px,env(safe-area-inset-left));
+            width:34px; height:34px; border-radius:50%; background:var(--bg2);
+            border:1px solid var(--line2); color:var(--txt2); font-size:19px; font-weight:500; line-height:1;
+            display:flex; align-items:center; justify-content:center; cursor:pointer; z-index:60; opacity:.8; pointer-events:auto; }
+  #homeBtn.hide { display:none; }
+  #helpBtn { position:fixed; top:calc(14px + env(safe-area-inset-top));
+            right:calc(max(16px,env(safe-area-inset-right)) + 42px);
+            width:34px; height:34px; border-radius:50%; background:var(--bg2);
+            border:1px solid var(--line2); color:var(--txt2); font-size:16px; font-weight:600; line-height:1;
+            display:flex; align-items:center; justify-content:center; cursor:pointer; z-index:60; opacity:.8; pointer-events:auto; }
+  #helpBtn.hide { display:none; }
+  /* 新手引导弹窗 */
+  #guide { position:fixed; inset:0; z-index:80; display:none; align-items:center; justify-content:center;
+           padding:24px; background:rgba(12,14,18,.86); }
+  #guide.show { display:flex; }
+  #guideCard { width:min(420px,92vw); max-height:86vh; overflow-y:auto;
+           background:var(--bg2); border:1px solid var(--line2); border-radius:16px; padding:24px 22px 20px; }
+  #guideCard h2 { font-size:20px; font-weight:600; letter-spacing:.5px;
+           color:var(--txt); text-align:center; margin-bottom:4px; }
+  #guideCard .gsub { text-align:center; color:var(--txt2); font-size:11px; letter-spacing:2px; margin-bottom:18px; }
+  #guideCard .grow { display:flex; gap:12px; align-items:flex-start; padding:12px 0;
+           border-top:1px solid var(--line); }
+  #guideCard .gico { flex:none; width:40px; height:40px; border-radius:10px; display:flex;
+           align-items:center; justify-content:center; font-size:13px; font-weight:700;
+           background:rgba(255,255,255,.05); color:var(--txt2); }
+  #guideCard .gtxt { flex:1; min-width:0; }
+  #guideCard .gt { font-size:14px; font-weight:600; color:var(--txt); margin-bottom:3px; }
+  #guideCard .gd { font-size:12px; line-height:1.6; color:var(--txt2); }
+  #guideCard .gd b { color:var(--acc); font-weight:600; }
+  /* PC 键位说明行：弹窗底部，仅桌面有快捷键意义，移动端隐藏 */
+  #guideKeys { display:none; margin-top:14px; padding-top:14px; border-top:1px solid var(--line); }
+  #guideKeys .gkTitle { font-size:11px; letter-spacing:2px; color:var(--txt3); text-transform:uppercase; margin-bottom:10px; }
+  #guideKeys .gkRow { display:flex; align-items:center; gap:10px; padding:5px 0; font-size:12.5px; color:var(--txt2); }
+  #guideKeys .kbd { flex:none; min-width:30px; height:26px; padding:0 8px; border-radius:6px;
+            background:rgba(255,255,255,.06); border:1px solid var(--line2); color:var(--txt);
+            font-size:13px; font-weight:600; display:inline-flex; align-items:center; justify-content:center;
+            font-family:ui-monospace,Menlo,monospace; }
+  #guideKeys .gkRow b { color:var(--acc); font-weight:600; }
+  /* 折叠"玩法详情"按钮 + 展开区 */
+  #guideMoreBtn { width:100%; margin-top:14px; padding:10px; background:transparent; border:none;
+            color:var(--txt2); font-size:13px; letter-spacing:1px; cursor:pointer;
+            display:flex; align-items:center; justify-content:center; gap:6px; }
+  #guideMoreBtn:hover { color:var(--txt); }
+  #guideMoreBtn .gmArrow { display:inline-block; transition:transform .2s; font-size:16px; line-height:1; }
+  #guideMoreBtn.open .gmArrow { transform:rotate(90deg); }
+  #guideMore { display:none; }
+  #guideMore.open { display:block; }
+  /* 键位说明：仅在展开详情 且 有物理键盘的设备显示 */
+  #guideKeys { display:none; }
+  body.has-keyboard #guideMore.open #guideKeys { display:block; }
+  #guideClose { margin-top:18px; width:100%; padding:12px; border:none; border-radius:10px;
+           background:var(--acc); color:#0c1a13; font-size:15px;
+           font-weight:600; letter-spacing:.5px; cursor:pointer; }
+
+  /* ===== v1.0.71: Toy 排行榜 —— 沿用青绿/雾红设计系统,零发光 ===== */
+  #lbOv { padding:34px 20px 24px; display:flex; flex-direction:column; align-items:center; overflow-y:auto; }
+  #lbTabs { display:flex; gap:8px; margin:14px 0 12px; }
+  .lbTab {
+    padding:8px 20px; border:1px solid var(--line2); border-radius:20px;
+    background:transparent; color:var(--txt2); font-size:13px; letter-spacing:1px;
+    cursor:pointer; font-family:inherit; transition:all .15s;
+  }
+  .lbTab.active {
+    border-color:var(--acc); color:var(--acc); background:var(--acc-soft); font-weight:600;
+  }
+  #lbMyRank {
+    width:min(92vw,420px); padding:12px 16px; margin:6px 0 12px;
+    background:var(--acc-soft); border:1px solid rgba(61,220,151,.34); border-radius:10px;
+    display:flex; justify-content:space-between; align-items:baseline; gap:10px;
+    font-variant-numeric:tabular-nums;
+  }
+  #lbMyRank .mrLbl { color:var(--txt2); font-size:11px; letter-spacing:1px; }
+  #lbMyRank .mrRk  { color:var(--acc); font-size:18px; font-weight:700; }
+  #lbMyRank .mrSc  { color:var(--txt); font-size:14px; font-weight:600; }
+  #lbList { width:min(92vw,420px); margin:0 0 16px; display:flex; flex-direction:column; gap:6px; }
+  .lbRow {
+    display:grid; grid-template-columns:36px 36px 1fr auto; align-items:center; gap:10px;
+    padding:9px 12px; border:1px solid var(--line); border-radius:9px;
+    background:var(--bg2); font-variant-numeric:tabular-nums;
+  }
+  .lbRow.mine { border-color:var(--acc); background:var(--acc-soft); }
+  .lbRow.top1 .lbRank { color:#ffcf3a; }
+  .lbRow.top2 .lbRank { color:#c9c9d3; }
+  .lbRow.top3 .lbRank { color:#c78e5c; }
+  .lbRank { font-size:15px; font-weight:700; color:var(--txt2); text-align:center; }
+  .lbAvatar { width:32px; height:32px; border-radius:50%; background:var(--bg); overflow:hidden; }
+  .lbAvatar img { width:100%; height:100%; object-fit:cover; display:block; }
+  .lbName { color:var(--txt); font-size:13px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+  .lbScore { color:var(--acc); font-size:14px; font-weight:700; }
+  .lbScore.down { color:var(--up); }
+  .lbEmpty { color:var(--txt3); font-size:12px; text-align:center; padding:32px 0; }
+  </style>
+</head>
+<body>
+<div id="wrap">
+  <canvas id="c"></canvas>
+  <div id="bgmBtn" title="背景音乐开关">♪</div>
+  <div id="helpBtn" class="hide" title="玩法说明">?</div>
+  <div id="homeBtn" class="hide" title="返回选股">←</div>
+
+  <div id="hud" class="hide">
+    <div class="panel" id="score">
+      <div class="lbl">资金</div>
+      <div class="big" id="scoreVal">$0</div>
+      <!-- v1.0.58: 赛季徽章 —— round>=1 时显示"第 N 局 · 峰值 $X" -->
+      <div id="seasonBadge" class="hide"></div>
+      <!-- 仓位进度条 + Combo 押注计数:5 段仓位条 + 连击标签同一行 -->
+      <div id="posRow">
+        <div id="posBar"><span class="seg"></span><span class="seg"></span><span class="seg"></span><span class="seg"></span><span class="seg"></span></div>
+        <div id="streakBox"><span id="streakLabel">×2 STREAK</span></div>
+      </div>
+      <!-- Build bar: 已选中的 buff 卡缩略图,资金面板底部 -->
+      <div id="buildBar"></div>
+    </div>
+  </div>
+  <!-- 居中实时股价大字条：主题是股票价格，让它当主角（含股票名） -->
+  <div id="priceBanner" class="hide">
+    <div class="pbSym" id="tkSym">APL · 1Y</div>
+    <div class="pbDay" id="pbDay">第 1 天</div>
+    <div class="pbRow"><span class="pbPrice" id="pbPrice">$0</span><span class="pbChg" id="pbChg">▲0.0%</span></div>
+    <div id="spdBar"><div id="spdFill"></div></div>
+  </div>
+  <!-- 做多/做空 持仓盈亏指示条 -->
+  <div id="posBox"></div>
+  <!-- 持仓时画面边缘泛光：赌对方向→亮你方向色（多红/空绿），强度随浮盈增长 -->
+  <div id="posGlow"></div>
+  <!-- 关键事件高亮 toast（骑过 2008/2020/2023 等历史节点时弹一下） -->
+  <div id="evtToast"><span class="evDate" id="evDate"></span><span class="evLabel" id="evLabel"></span></div>
+
+  <div id="combo"><div class="c1" id="comboBig">+500</div><div class="c2" id="comboSub">FLIP!</div></div>
+
+  <div id="ctrl" class="hide">
+    <div id="posBtns">
+      <div class="posBtn" id="longBtn"><svg class="psIco" viewBox="0 0 24 24"><path d="M12 19V5M12 5l-6 6M12 5l6 6"/></svg><span class="psTxt">做多</span></div>
+      <div class="posBtn" id="shortBtn"><svg class="psIco" viewBox="0 0 24 24"><path d="M12 5v14M12 19l-6-6M12 19l6-6"/></svg><span class="psTxt">做空</span></div>
+    </div>
+    <div id="driveStack">
+      <div class="btn" id="gas">秀一下</div>
+      <div class="btn" id="closeBtn">平仓<br>结算</div>
+    </div>
+  </div>
+
+  <!-- 新手引导弹窗：核心玩法=看多/看空/平仓，投机=辅助。右上❓随时唤出 -->
+  <div id="guide">
+    <div id="guideCard">
+      <h2>怎么玩</h2>
+      <div class="gsub">落袋,还是爆仓?</div>
+      <div class="grow">
+        <div class="gico" style="background:rgba(224,109,109,.16);color:#e06d6d">多</div>
+        <div class="gtxt"><div class="gt">做多 / 看涨</div>
+          <div class="gd">觉得行情要<b>涨</b>就按做多，押一笔下注。</div></div>
+      </div>
+      <div class="grow">
+        <div class="gico" style="background:rgba(82,183,136,.16);color:#52b788">空</div>
+        <div class="gtxt"><div class="gt">做空 / 看跌</div>
+          <div class="gd">觉得要<b>跌</b>就按做空，跌得越狠赚得越多。</div></div>
+      </div>
+      <div class="grow" style="border-bottom:1px solid var(--line)">
+        <div class="gico">平</div>
+        <div class="gtxt"><div class="gt">平仓 / 落袋（主操作）</div>
+          <div class="gd">按<b>平仓</b>把浮盈<b>结算成真金白银</b>，何时收手决定你赚多少。</div></div>
+      </div>
+
+      <button id="guideMoreBtn" type="button">玩法详情 <span class="gmArrow">›</span></button>
+      <div id="guideMore">
+        <div class="grow">
+          <div class="gico">仓</div>
+          <div class="gtxt"><div class="gt">加仓 / 满仓</div>
+            <div class="gd">押方向后再按同向键<b>加仓</b>（每笔=本金 1/5，最多 5 笔满仓），仓位越大盈亏越大。</div></div>
+        </div>
+        <div class="grow">
+          <div class="gico">秀</div>
+          <div class="gtxt"><div class="gt">秀一下 / 跳跃捡钱</div>
+            <div class="gd">K线上偶尔有<b>金币</b>，按<b>秀一下</b>键跳起够到即入袋，空中翻跟头还能<b>×连击翻倍</b>。</div></div>
+        </div>
+        <div class="grow" style="border-bottom:1px solid var(--line)">
+          <div class="gico">!</div>
+          <div class="gtxt"><div class="gt">浮盈浮亏 / 破产</div>
+            <div class="gd">押对方向赚、押反方向亏，盈亏=<b>仓位×真实涨跌</b>，平仓才落袋；无强平爆仓。资金从 $1,000 起步，<b>亏到归零=破产</b>本局结束。</div></div>
+        </div>
+        <div id="guideKeys">
+          <div class="gkTitle">电脑键盘</div>
+          <div class="gkRow"><span class="kbd">↑</span><span>做多 / 看涨（再按<b>加仓</b>）</span></div>
+          <div class="gkRow"><span class="kbd">↓</span><span>做空 / 看跌（再按<b>加仓</b>）</span></div>
+          <div class="gkRow"><span class="kbd">空格</span><span><b>平仓</b> / 落袋（主操作）</span></div>
+          <div class="gkRow"><span class="kbd">→</span><span>秀一下 / 跳跃捡钱</span></div>
+        </div>
+      </div>
+
+      <button id="guideClose">开始</button>
+    </div>
+  </div>
+
+  <div class="overlay" id="startOv">
+    <div id="gameIcon" aria-hidden="true">
+      <img src="icon.png" width="84" height="84" alt="" draggable="false"/>
+    </div>
+    <h1><span class="em">K线</span>狂飙</h1>
+    <p style="color:var(--txt3);font-size:11px;letter-spacing:3px;margin-top:-2px">STOCK MOTO</p>
+    <p>抽一只<b>真实股</b>，在它的历史K线上狂飙。<br><b>看多 / 看空</b>押方向，<b>平仓</b>落袋为安。</p>
+    <button class="start-btn" id="startBtn">出发<br><span style="font-size:12px;font-weight:400;opacity:.85;letter-spacing:1px">随机抽一只股</span></button>
+    <button class="lib-btn" id="libBtn">玩过的股票</button>
+    <!-- v1.0.71: B 站 Toy 排行榜入口 (非 Toy 环境下 JS 会自动 display:none) -->
+    <button class="lib-btn hide" id="lbBtn" style="margin-top:10px">🏆 排行榜</button>
+  </div>
+
+  <!-- 开局抽卡：老虎机式滚动翻出本局随机标的 -->
+  <div class="overlay hide" id="cardOv">
+    <div id="drawHint">正在接入行情…</div>
+    <div id="slot">
+      
+      <div id="slotName">———</div>
+      <div id="slotCls"></div>
+    </div>
+    <div id="slotDesc"></div>
+  </div>
+
+  <!-- 我的行情库：玩过的股 + 最好成绩，可重开指定股 -->
+  <div class="overlay hide" id="libOv">
+    <h1 style="font-size:28px">玩过的股票</h1>
+    <p>玩过的标的会收录在这里，记录你的最高战绩。点任意一支可直接重开（不随机）。</p>
+    <div id="libList"></div>
+    <button class="lib-btn" id="libBackBtn">返回</button>
+  </div>
+
+  <div class="overlay hide" id="endOv">
+    <h1 id="endTitle">冲线</h1>
+    <div id="endStars" class="stars"><span>★</span><span>★</span><span>★</span></div>
+    <p id="endSub"></p>
+    <div class="stat" id="endScore">$0</div>
+    <div id="endLoss" class="hide"></div>
+    <div class="sub2" id="endBreak"></div>
+    <!-- v1.0.58: 赛季徽章 —— 显示第几局/峰值/累计涨跌 -->
+    <div id="endSeason" class="hide"></div>
+    <div class="best" id="endBest"></div>
+    <div id="endUnlock" class="unlock hide"></div>
+    <div class="endActions">
+      <div class="endBtns">
+        <button class="start-btn ghost" id="shareBtn">分享战绩</button>
+        <button class="start-btn" id="retryBtn">再来一局</button>
+      </div>
+      <!-- v1.0.58: 落袋按钮(仅冲线且轮次进行中显示,主动结束本轮),青绿 ghost 与分享战绩同级 -->
+      <button class="textBtn" id="cashOutBtn" style="display:none">半场退赛 · 战绩不入榜</button>
+    </div>
+    <button class="textBtn" id="backBtn" style="display:none">换一支股票</button>
+  </div>
+
+  <!-- 分享卡预览 -->
+  <div class="overlay hide" id="shareOv">
+    <h1 style="font-size:20px">战绩卡</h1>
+    <p style="margin-bottom:14px">长按图片保存，或截图分享给朋友</p>
+    <canvas id="shareCanvas" width="600" height="800" style="width:min(78vw,300px);height:auto;border-radius:14px"></canvas>
+    <button class="start-btn" id="shareCloseBtn" style="margin-top:18px">完成</button>
+  </div>
+
+  <!-- v1.0.59: 赛程终局大屏 —— 8 回合缩略战绩 + 总收益率 + S/A/B/C/D 评级 -->
+  <div class="overlay hide" id="matchRecapOv">
+    <div id="mrHeader">
+      <div id="mrTitle">赛程结算</div>
+      <div id="mrSub">8 回合冲线 · 你的完整交易日记</div>
+    </div>
+    <div id="mrGrade"><span id="mrGradeLetter">S</span><span id="mrGradeLabel">封神</span></div>
+    <div id="mrStats">
+      <div class="mrStat"><div class="mrK">总收益率</div><div class="mrV" id="mrOverallPct">+0%</div></div>
+      <div class="mrStat"><div class="mrK">峰值资金</div><div class="mrV" id="mrPeak">$0</div></div>
+      <div class="mrStat"><div class="mrK">最强单局</div><div class="mrV" id="mrBestRun">—</div></div>
+    </div>
+    <div id="mrRoundsWrap">
+      <div class="mrRoundsLbl">8 回合战绩</div>
+      <div id="mrRounds"></div>
+    </div>
+    <div id="mrBuildWrap">
+      <div class="mrRoundsLbl">最终 BUILD</div>
+      <div id="mrBuild"></div>
+    </div>
+    <div class="endActions">
+      <div class="endBtns">
+        <button class="start-btn ghost" id="mrShareBtn">分享战绩</button>
+        <button class="start-btn" id="mrNewMatchBtn">再战新赛程</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- v1.0.71: 排行榜 overlay - 周榜/总榜切换,顶部显示我的排名,列表 top 50 -->
+  <div class="overlay hide" id="lbOv">
+    <h1 style="font-size:24px">🏆 排行榜</h1>
+    <p style="color:var(--txt2);font-size:12px;margin-top:-4px">赛程完赛净资产 · 同分先到者靠前</p>
+    <div id="lbTabs">
+      <button class="lbTab active" data-period="week">本周榜</button>
+      <button class="lbTab" data-period="all">总榜</button>
+    </div>
+    <div id="lbMyRank" class="hide"></div>
+    <div id="lbList">
+      <div class="lbEmpty">加载中…</div>
+    </div>
+    <button class="lib-btn" id="lbBackBtn">返回</button>
+  </div>
+
+  <!-- 竖屏提示：顶部居中小药丸 toast，不挡主视觉 -->
+  <div id="rotate">
+    <div class="rotIcon">↻</div>
+    <div class="rotBody">
+      <div class="rotTxt">横屏赛道更宽，看得更远</div>
+    </div>
+    <button id="rotDismiss">知道了</button>
+  </div>
+</div>
+
+<!-- Roguelike Buff 卡抽卡遮罩:半暂停,3 选 1,支持键盘 1/2/3 或点击 -->
+<div id="buffPickOv">
+  <div class="buffTitle">交易升级</div>
+  <div class="buffSub">选一张能力卡 · 持续到本局结束</div>
+  <!-- v1.0.57: 抽卡持仓条 —— 显示当前浮动盈亏 + 平仓按钮 -->
+  <div id="buffPickPosBar">
+    <span class="ppLbl">当前持仓</span>
+    <span id="ppDir" class="ppDir">—</span>
+    <span id="ppStake">$0</span>
+    <span class="ppLbl">·</span>
+    <span id="ppPnl" class="ppPnl">$0</span>
+    <button id="ppClose" class="ppClose" type="button">平仓落袋</button>
+  </div>
+  <div id="buffPickCards"></div>
+</div>
+
+<!-- v1.0.60: 休整室(战后复盘室) —— 局间三段式:战绩 / 事件回顾 / 抽卡 -->
+<div id="intermissionOv">
+  <div class="imBox">
+    <div class="imHead">
+      <div class="imTitle">休整室</div>
+      <div class="imRound" id="imRound">回合 —/—</div>
+    </div>
+    <div class="imSection">
+      <div class="imSecLabel">本场战绩</div>
+      <div class="imScorecard">
+        <div class="imStock">
+          <div class="imStockKey" id="imStockKey">—</div>
+          <div class="imStockDate" id="imStockDate">—</div>
+        </div>
+        <div class="imStat"><div class="imStatLbl">本金→结算</div><div class="imStatVal" id="imCash">$0 → $0</div></div>
+        <div class="imStat"><div class="imStatLbl">本场涨跌</div><div class="imStatVal" id="imDelta">0%</div></div>
+        <div class="imStat"><div class="imStatLbl">回撤</div><div class="imStatVal" id="imDrawdown">—</div></div>
+      </div>
+    </div>
+    <div class="imSection">
+      <div class="imSecLabel">关键时刻回顾</div>
+      <div class="imEvents" id="imEvents"></div>
+    </div>
+    <div class="imSection">
+      <div class="imSecLabel">升级 Build · 三选一</div>
+      <div class="imCards" id="imCards"></div>
+    </div>
+    <div class="imFoot">
+      <button id="imSkipBtn" class="imSkipBtn" type="button">跳过 · 保留原 Build</button>
+    </div>
+  </div>
+</div>
+
+<script>
+// 设备能力检测：判断是否有物理键盘 → 决定是否在引导里显示 PC 键位说明
+// 逻辑：粗指针(触屏)且不支持精细 hover = 纯触摸设备，不显示；否则视为有键盘
+(function(){
+  try{
+    const fine = window.matchMedia && window.matchMedia('(pointer:fine)').matches;
+    const canHover = window.matchMedia && window.matchMedia('(hover:hover)').matches;
+    const noTouch = !('ontouchstart' in window) && (navigator.maxTouchPoints||0)===0;
+    if(noTouch || (fine && canHover)) document.body.classList.add('has-keyboard');
+  }catch(e){ /* 检测失败则不显示，移动端为主不影响 */ }
+})();
+const C = document.getElementById('c');
+const X = C.getContext('2d');
+let W, H, DPR;
+function resize(){
+  DPR = Math.min(window.devicePixelRatio||1, 2);
+  W = C.clientWidth; H = C.clientHeight;
+  C.width = W*DPR; C.height = H*DPR;
+  X.setTransform(DPR,0,0,DPR,0,0);
+}
+window.addEventListener('resize', resize);
+
+// ===== 音效（WebAudio 合成，无外部文件）=====
+let AC=null, engineOsc=null, engineGain=null;
+function initAudio(){
+  if(AC) return;
+  try{ AC = new (window.AudioContext||window.webkitAudioContext)(); }catch(e){ return; }
+  engineOsc = AC.createOscillator(); engineGain = AC.createGain();
+  engineOsc.type='sawtooth'; engineOsc.frequency.value=60;
+  engineGain.gain.value=0; engineOsc.connect(engineGain); engineGain.connect(AC.destination);
+  engineOsc.start();
+}
+function engineSound(v){
+  if(!AC) return;
+  engineOsc.frequency.value = 50 + Math.abs(v)*10;
+  engineGain.gain.value = gasOn ? 0.04 : 0.012;
+}
+function blip(freq,dur,type,vol){
+  if(!AC) return;
+  const o=AC.createOscillator(), g=AC.createGain();
+  o.type=type||'square'; o.frequency.value=freq;
+  g.gain.setValueAtTime(vol||0.12, AC.currentTime);
+  g.gain.exponentialRampToValueAtTime(0.001, AC.currentTime+dur);
+  o.connect(g); g.connect(AC.destination); o.start(); o.stop(AC.currentTime+dur);
+}
+// 电子扫频音：频率从 f0 线性滑到 f1，方波带数字"哔"感，用于金融/电子风的成交回报与盈亏反馈
+function sweep(f0,f1,dur,type,vol){
+  if(!AC) return;
+  const o=AC.createOscillator(), g=AC.createGain();
+  o.type=type||'square';
+  const t=AC.currentTime;
+  o.frequency.setValueAtTime(f0,t);
+  o.frequency.linearRampToValueAtTime(f1,t+dur);
+  g.gain.setValueAtTime(vol||0.1,t);
+  g.gain.exponentialRampToValueAtTime(0.001,t+dur);
+  o.connect(g); g.connect(AC.destination); o.start(); o.stop(t+dur+0.02);
+}
+const sndJump =()=>blip(220,0.12,'sine',0.1);
+const sndFlip =()=>{ blip(440,0.08,'square',0.12); setTimeout(()=>blip(660,0.1,'square',0.12),60); };
+const sndLand =()=>blip(120,0.1,'sine',0.14);
+const sndCrash=()=>{ sweep(440,70,0.3,'sawtooth',0.16); setTimeout(()=>blip(60,0.32,'square',0.14),60); };
+const sndWin  =()=>{ [523,659,784,1046].forEach((f,i)=>setTimeout(()=>blip(f,0.18,'triangle',0.13),i*100)); };
+// 失败定调音：一段下坠的小调琶音（高→低），给结算页\"完了\"的情绪收束，区别于 crash 的爆裂
+const sndLose =()=>{ [392,330,262,196].forEach((f,i)=>setTimeout(()=>blip(f,0.22,'triangle',0.12),i*110)); };
+const sndCoin =()=>{ sweep(1200,1900,0.05,'square',0.1); };
+// 开仓成交音：交易终端"哔-哔"双脉冲，做多两声上扬(880/1100)、做空两声下沉(880/660)，纯电子方波，像下单成交回报
+const sndTrade=(dir)=>{ const a=dir===1?[880,1175]:[880,659]; blip(a[0],0.04,'square',0.1); setTimeout(()=>blip(a[1],0.06,'square',0.11),48); };
+// 平仓盈利音：上行电子扫频(钱进账"咻↑")，赚大钱(big)再补一记高频确认"哔"
+const sndProfit=(big)=>{ sweep(660,1320,0.14,'square',0.11); if(big) setTimeout(()=>{ sweep(1320,1980,0.1,'square',0.11); setTimeout(()=>blip(1980,0.06,'square',0.1),90); },150); };
+// 平仓小亏音：短促下沉电子扫频"噗↓"，比 sndCrash(爆仓爆裂)轻，区分"小亏"与"爆仓"
+const sndLoss=()=>{ sweep(523,294,0.16,'square',0.09); };
+
+// ===== 背景音乐：外部 CC0 音乐文件循环（紧张电子风 "Pulse"，OpenGameArt CC0，零版权可商用）=====
+// B2 方案：独立 bgm.mp3 放 static/，<audio loop> 播放，接 WebAudio gain 接管音量(保留 BGM_VOL 铺底)
+let bgmEl=null, bgmSrcNode=null, bgmGain=null, bgmReady=false;
+function ensureBGMEl(){
+  if(bgmEl) return;
+  bgmEl=document.createElement('audio');
+  bgmEl.src='bgm.mp3'; bgmEl.loop=true; bgmEl.preload='auto'; bgmEl.crossOrigin='anonymous';
+  bgmEl.addEventListener('canplaythrough',()=>{ bgmReady=true; },{once:true});
+  // 接入 WebAudio 链路做音量控制；若 AC 不可用则退化为元素自身音量
+  if(AC){
+    try{
+      bgmGain=AC.createGain(); bgmGain.gain.value=CONFIG.BGM_VOL; bgmGain.connect(AC.destination);
+      bgmSrcNode=AC.createMediaElementSource(bgmEl); bgmSrcNode.connect(bgmGain);
+    }catch(e){ bgmEl.volume=CONFIG.BGM_VOL; }
+  }else{
+    bgmEl.volume=CONFIG.BGM_VOL;
+  }
+}
+function startBGM(){
+  ensureBGMEl();
+  if(AC && AC.state==='suspended'){ AC.resume().catch(()=>{}); }
+  const p=bgmEl.play();
+  if(p&&p.catch){ p.catch(()=>{}); } // 自动播放被拦截时静默，等用户交互再触发
+}
+function stopBGM(){ if(bgmEl){ try{ bgmEl.pause(); }catch(e){} } }
+let bgmEnabled = (localStorage.getItem('stonk_bgm')!=='0');
+function toggleBGM(){
+  bgmEnabled=!bgmEnabled; localStorage.setItem('stonk_bgm',bgmEnabled?'1':'0');
+  if(bgmEnabled) startBGM(); else stopBGM();
+  const b=document.getElementById('bgmBtn'); if(b) b.textContent=bgmEnabled?'♪':'♪̶';
+}
+
+// ===== 赛道：从真实行情(stocks.json)动态构建。不再有固定关卡/解锁门槛 =====
+// TRACKS 在 stocks.json 载入后由 buildTracks() 填充。每条赛道字段：
+//   sym 展示名 / name 短名 / color 主色 / emoji 图标 / cls 资产类别 / desc 名场面
+//   trend(残留兼容) / vol(由真实波动率推导,影响跳跃物理) / amp(地形纵向缩放) / tier(波动档位) / basePrice / unit
+let TRACKS = {};
+let TRACK_ORDER = [];
+// 由价格序列的对数收益标准差推导"波动档位"——决定 vol(跳跃手感) 与 tier 文案
+function volTier(prices){
+  if(!prices || prices.length<3) return {vol:1.2, tier:'波动', label:'波动'};
+  let s=0,c=0,prev=Math.log(Math.max(prices[0],1e-9));
+  for(let i=1;i<prices.length;i++){ const l=Math.log(Math.max(prices[i],1e-9)); s+=(l-prev)*(l-prev); prev=l; c++; }
+  const sd=Math.sqrt(s/Math.max(1,c));   // 对数收益标准差
+  // 经验映射：sd 越大越狂野
+  if(sd<0.10) return {vol:1.0, tier:'稳健'};
+  if(sd<0.16) return {vol:1.5, tier:'陡峭'};
+  if(sd<0.24) return {vol:2.0, tier:'狂野'};
+  return {vol:2.4, tier:'地狱'};
+}
+function buildTracks(){
+  TRACKS={};
+  for(const k of Object.keys(STOCKDATA)){
+    const d=STOCKDATA[k]; if(!d||!d.prices||d.prices.length<4) continue;
+    const yr0=(d.from||'').slice(0,4), vt=volTier(d.prices);
+    const base=d.prices[0];
+    TRACKS[k]={
+      sym:(d.name||k)+(yr0?(' · '+yr0+'→今'):''),
+      name:d.name||k, color:d.color||'#3ddc97', emoji:d.emoji||'',
+      cls:d.cls||'', desc:d.desc||'',
+      trend:0.4, vol:vt.vol, amp:0.46, tier:vt.tier,
+      basePrice:base, unit:(d.cls==='港互'?'HK$':(d.sym||'').match(/^(SH|SZ)/)?'¥':'$'),
+    };
+  }
+  TRACK_ORDER=Object.keys(TRACKS);
+}
+
+// ===== 进度系统（localStorage）——星级降级为荣誉记录，不再做解锁门槛 =====
+function getStars(key){ return +(localStorage.getItem('stonk_stars_'+key)||0); }
+function setStars(key,n){ const cur=getStars(key); if(n>cur) localStorage.setItem('stonk_stars_'+key, n); }
+function getBest(key){ return +(localStorage.getItem('stonk_best_'+key)||0); }
+function totalStars(){ return TRACK_ORDER.reduce((s,k)=>s+getStars(k),0); }
+// 行情库：记录玩过的标的（按首次游玩顺序）
+function getPlayed(){ try{ return JSON.parse(localStorage.getItem('stonk_played')||'[]'); }catch(e){ return []; } }
+function markPlayed(key){ const a=getPlayed(); if(!a.includes(key)){ a.push(key); localStorage.setItem('stonk_played', JSON.stringify(a)); } }
+// ===== v1.0.58: 赛季存档 —— 本金滚动到下一局,破产/见好收手清空 =====
+// 数据结构:{ cash:当前本金, round:第几局(1起), peak:峰值资金, history:[{key,delta,end}...] }
+// 冲线成功 → cash = 冲线结算资金,round++;破产 / seasonCashOut → 全部清空
+function getSeason(){
+  try{
+    const s = JSON.parse(localStorage.getItem('stonk_season')||'null');
+    if(!s || typeof s.cash!=='number' || s.cash<=0) return null;
+    // v1.0.59: 老存档兼容 —— 补齐 buffs/matchLen/matchDone 字段
+    if(!Array.isArray(s.buffs)) s.buffs = [];
+    if(typeof s.matchLen !== 'number') s.matchLen = CONFIG.MATCH_LEN;
+    if(typeof s.matchDone !== 'boolean') s.matchDone = false;
+    return s;
+  }catch(e){ return null; }
+}
+function saveSeason(s){ localStorage.setItem('stonk_season', JSON.stringify(s)); }
+function clearSeason(){ localStorage.removeItem('stonk_season'); }
+// 决定下一局起步资金:有存档 → 用存档,否则 START_CASH
+function getSeasonStartCash(){
+  const s = getSeason();
+  return s ? Math.max(1, Math.floor(s.cash)) : CONFIG.START_CASH;
+}
+// 评星：冲线1星 + 翻转达标1星 + 完美落地达标1星（未冲线最多1星）
+// 评星：靠操作而非躺平——1星=冲线 / 2星=冲线且够快(必须用油门) / 3星=快且有技术(空翻或完美落地)
+// dur=本局用时(秒)。纯巡航(速7)约150s，满速(18)约57s；故 FAST 门槛设在两者之间，逼玩家主动加速。
+function calcRating(win, flips, perfectLands, dur){
+  if(!win) return 0;                          // 没冲线=0星（翻车不再保底给星）
+  let s=1;                                    // 冲线=1星
+  const fastEnough = dur <= CONFIG.STAR_FAST_SEC;          // 够快（必须靠油门）
+  const skillful   = flips>=CONFIG.STAR_FLIPS || perfectLands>=CONFIG.STAR_PERFECTS; // 有技术动作
+  if(fastEnough) s++;                         // 2星：快
+  if(fastEnough && skillful) s++;             // 3星：又快又秀（满星必须既加速又炫技）
+  return s;
+}
+// ===== 毒舌结算文案（按表现随机，提升网感与分享欲）=====
+function pickTaunt(win, flips, progress){
+  const pool = win
+    ? (flips>=5 ? ['飘了飘了，这波是天才','大神别走，带带我','这操作能进股神名人堂']
+      : flips>=2 ? ['漂亮，稳稳上岸','这把不亏，老司机了','冲线还带翻跟头，秀']
+      : ['上岸了，稳！','安全冲线，菜是菜了点','活着就好，下把再浪'])
+    : (progress<0.2 ? ['开局劝退？这就拉了','起步就翻，建议重新学车','人没了，菜狗实锤']
+      : progress<0.5 ? ['一半都没到，回炉吧','翻得挺早啊朋友','心态崩了？再来']
+      : progress<0.85 ? ['就差一点点！可惜了','已经很近了，再忍一下啊','差临门一脚，气不气']
+      : ['终点在向你招手你却倒下了','最后一哆嗦没绷住','99% 功亏一篑，破防了吗']);
+  return pool[Math.floor(Math.random()*pool.length)];
+}
+// 破产专属毒舌（满仓押反、亏到归零——比普通翻车更狠）
+function pickBankruptTaunt(){
+  const pool=['加仓一时爽，亏光火葬场','梭哈梭哈，梭成乞丐','本金清零，下次记得带脑子','满仓干，结果干没了','这就是不信邪的下场','加仓的时候多潇洒，现在就多惨','亏没了，归零了，散了吧','押反方向还满仓，勇士','仓位？什么仓位，没了','一把回到解放前'];
+  return pool[Math.floor(Math.random()*pool.length)];
+}
+let trackKey = 'APL';
+let terrain = [];
+let STOCKDATA = {};   // 真实行情：{KEY:{sym,from,to,dates[],prices[],events[]}}（运行时从 stocks.json 载入）
+const SEG = 30;
+let curSeg = 30;   // 当前赛道实际段距（真实行情赛道会按点数动态铺满，故与 SEG 不同）
+let trackLen = 0;
+let startPrice = 100;   // 当前赛道起始展示价
+let trackEvents = [];   // 当前赛道的关键事件锚点 [{x, date, label, hit}]
+const TARGET_TRACK_LEN = 36000;  // 赛道物理总长（像素）——巡航(速16)约 37.5s 一趟：比原 27s 更耐玩，多给几波行情起伏，又不拖沓
+function buildTerrain(key){
+  const t = TRACKS[key];
+  const real = STOCKDATA[key];
+  trackEvents = [];
+  if(real && real.prices && real.prices.length>4){
+    // ===== 真实行情赛道 =====
+    const prices = real.prices, dates = real.dates;
+    const N = prices.length;
+    const seg = TARGET_TRACK_LEN/(N-1);   // 按真实点数把赛道铺满目标长度
+    curSeg = seg;
+    // 用对数缩放——股价跨度极大（0.04→200），log 后曲线起伏才均衡可玩
+    const logs = prices.map(p=>Math.log(Math.max(p,1e-6)));
+    let lo=Math.min(...logs), hi=Math.max(...logs);
+    const baseY=H*0.6, amp=H*t.amp;
+    const rangeNorm = v => (v-lo)/(hi-lo+1e-6);   // 0..1
+    // 叠加小幅合成颠簸：保留真实宏观走势，又制造可起跳的小坡（不改变趋势）
+    let seed=(key.length*131+7)&0x7fffffff;
+    const rnd=()=>{ seed=(seed*1103515245+12345)&0x7fffffff; return seed/0x7fffffff; };
+    terrain = prices.map((p,i)=>{
+      const bump = Math.sin(i*0.9)*0.005 + (rnd()-0.5)*0.008;  // ±0.8% 的轻微起伏（更顺，避免小坡乱弹）
+      const yn = Math.min(1,Math.max(0, rangeNorm(logs[i]) + bump));
+      return { x:i*seg, y: baseY - yn*amp, price:+p.toFixed(p<1?4:2), date:dates[i] };
+    });
+    trackLen=(N-1)*seg;
+    startPrice = terrain[0].price;
+    // 事件锚点映射到世界坐标
+    trackEvents = (real.events||[]).map(e=>({ x:e.i*seg, date:e.date, label:e.label, hit:false }));
+    scatterCoins();
+    return;
+  }
+  // ===== 程序化赛道（CRASH 等无真实数据的关）=====
+  const N = 200;
+  let price = 100, raw = [];
+  let seed = (Date.now()%99999)+key.length*777;
+  const rnd=()=>{ seed=(seed*1103515245+12345)&0x7fffffff; return seed/0x7fffffff; };
+  for(let i=0;i<N;i++){
+    const drift=t.trend*0.6, shock=(rnd()-0.5)*16*t.vol;
+    price=Math.max(20, price+drift+shock);
+    // 随机插入"陡坡跳台"——这是制造起跳点的关键
+    if(i>8 && i<N-8 && rnd()<0.14) price += 45*(0.7+rnd());
+    raw.push(price);
+  }
+  const sm=[]; const K=3;
+  for(let i=0;i<N;i++){ let s=0,c=0; for(let j=-K;j<=K;j++){ if(raw[i+j]!=null){s+=raw[i+j];c++;} } sm.push(s/c); }
+  let lo=Math.min(...sm), hi=Math.max(...sm);
+  const baseY=H*0.6, amp=H*t.amp;
+  // 把"股价"映射到真实价格区间，保留每个点的 price / day，供 HUD 和翻车结算显示
+  const P0=t.basePrice||100;                       // 起始展示价
+  const scale=P0/sm[0];                            // 把平滑序列缩放到展示价附近
+  terrain = sm.map((p,i)=>({
+    x:i*SEG,
+    y: baseY-((p-lo)/(hi-lo+1e-6))*amp,
+    price: +(p*scale).toFixed(2),                  // 该点对应的"股价"
+    date: null                                      // 程序化关无真实日期
+  }));
+  curSeg = SEG;
+  trackLen=(N-1)*SEG;
+  startPrice = terrain[0].price;
+  scatterCoins();
+}
+// ===== 在 K 线上撒"捡钱机会"金币 =====
+// 按固定世界距离均匀撒（不按点索引，避免真实K线点距不均导致币忽密忽疏）
+// 低空币贴近地面（骑过即捡），高空币悬在地面上方更高处（须主动起跳够到，奖励更高）
+function scatterCoins(){
+  coins=[];
+  if(!terrain || terrain.length<6) return;
+  let seed=(terrain.length*977 + 31)&0x7fffffff;
+  const rnd=()=>{ seed=(seed*1103515245+12345)&0x7fffffff; return seed/0x7fffffff; };
+  const STEP = CONFIG.COIN_DIST;                 // 每隔多少世界像素撒一枚
+  for(let x=STEP*2; x<trackLen-STEP*2; x+=STEP){
+    if(rnd()>CONFIG.COIN_PROB) continue;
+    const gy=groundY(x);
+    const high=rnd()<CONFIG.COIN_HIGH_RATE;
+    // 低空币：地面上方 12~30px（车顶/骑行高度即可蹭到）；高空币：95~145px（起跳够得着，JUMP_V=15约可达156px）
+    const yOff = high ? (95+rnd()*50) : (12+rnd()*18);
+    coins.push({ x, y: gy - yOff, got:false, high, val: high?CONFIG.COIN_HIGH_VAL:CONFIG.COIN_LOW_VAL, ph: rnd()*6.28 });
+  }
+}
+
+// 根据世界坐标取当前"股价 / 日期"（线性插值 + 就近日期）
+function priceAt(wx){
+  const fi=Math.max(0,Math.min(terrain.length-1, wx/curSeg));
+  const i=Math.floor(fi), f=fi-i;
+  const a=terrain[i], b=terrain[Math.min(terrain.length-1,i+1)];
+  return { price:+(a.price+(b.price-a.price)*f).toFixed(2), date:(f<0.5?a.date:b.date) };
+}
+function groundY(wx){
+  if(wx<=0) return terrain[0].y;
+  if(wx>=trackLen) return terrain[terrain.length-1].y;
+  const fi=wx/curSeg, i=Math.floor(fi), f=fi-i;
+  const p0=terrain[Math.max(0,i-1)],p1=terrain[i],p2=terrain[i+1]||terrain[i],p3=terrain[Math.min(terrain.length-1,i+2)];
+  const f2=f*f,f3=f2*f;
+  return 0.5*((2*p1.y)+(-p0.y+p2.y)*f+(2*p0.y-5*p1.y+4*p2.y-p3.y)*f2+(-p0.y+3*p1.y-3*p2.y+p3.y)*f3);
+}
+function groundAngle(wx){ const d=8,y1=groundY(wx-d),y2=groundY(wx+d); return Math.atan2(y2-y1,2*d); }
+
+// ===== 全局可调参数（调手感/难度只改这里）=====
+const CONFIG = {
+  // —— 物理 ——
+  GRAV: 0.72,        // 重力（越大下落越快）
+  ENGINE: 0.62,      // 油门加速度
+  MAXV: 24,          // 最大水平速度
+  CRUISE_V: 16,      // 自动巡航速度（恒定向前；去掉加速键后唯一前进速度）——约 27s 跑完全程，明快有飙车感
+  CRUISE_ACC: 0.18,  // 松手时 vx 朝巡航速度回归的加速度（平滑收/放）
+  FRICT: 0.992,      // 地面摩擦（越接近1越滑）
+  AIRTQ: 0.28,       // 空中翻转扭矩（0.24→0.28：空翻起转更顺、跟手）
+  // —— 空中/落地手感 ——
+  AIR_CTRL_DELAY: 0.10,  // 离地多少秒后才允许油门空翻（0.18→0.10：起跳更早能控）
+  VA_CLAMP: 0.58,        // 空中角速度上限（0.52→0.58：转圈更顺，仍在可控落地范围）
+  LAND_DEAD_ANG: 1.62,   // 落地姿态超过此弧度(约93°)才翻车（1.50→1.62：更宽容，翻完更有余地摆正）
+  PERFECT_ANG: 0.26,     // 完美落地角度容差
+  // —— 坡顶弹射 ——
+  LAUNCH_MIN: 1.8,   // 弹射触发的最小坡度×速度
+  LAUNCH_VX: 6,      // 弹射所需最小水平速度
+  LAUNCH_BASE: 8,    // 弹射基础上抛速度
+  LAUNCH_MAX: 26,    // 弹射最大上抛速度
+  // —— 地形生成 ——
+  SEG: 30, TERRAIN_N: 200, JUMP_PROB: 0.22, JUMP_AMP: 52,
+  // —— 评分/解锁 ——
+  FLIP_PTS: 500, PERFECT_PTS: 200,
+  // —— 星级门槛（满星靠操作而非躺平）——
+  STAR_FAST_SEC: 95,   // 用时 ≤95s 才拿"快"星（纯巡航约150s 拿不到，须主动按油门加速）
+  STAR_FLIPS: 2,       // 空翻 ≥2 次算"有技术"
+  STAR_PERFECTS: 2,    // 或完美落地 ≥2 次算"有技术"
+  // —— BGM ——
+  BGM_VOL: 0.06, BGM_BPM: 150,
+  // —— 做多/做空 持仓玩法（现货模型，1:1 真实盈亏，无杠杆/无爆仓）——
+  POS_MIN_HOLD: 0.25,  // 建仓后最短持有时间（秒），防手抖瞬间平仓刷分
+  POS_STEP: 0.20,      // 每笔仓位 = 当前资金的 20%（看多/看空键开仓，同向再按=再加一笔）
+  POS_MAX_STEPS: 5,    // 最多加到 5 笔 = 满仓（押满当前资金）
+  // —— 本金 / 破产 ——
+  START_CASH: 1000,    // 首局资金基准(score 归零=破产出局);后续局本金从赛季存档滚存
+  // v1.0.58: 赛季式滚动本金 —— 冲线不清零,下一局从 season.cash 起步;破产/主动收手清空存档
+  // v1.0.59: 一场赛程 = MATCH_LEN 回合,买入=每回合一支股票,回合间 buff 累积 build
+  MATCH_LEN: 8,        // 一场赛程回合数(金铲铲式 8 阶段感)
+  // 现货模型：盈亏额 = 仓位金额 × 真实涨跌% × 方向，1:1 真实，无放大。
+  // 无强平爆仓；持仓只有浮盈/浮亏，平仓才落袋。唯一出局边界是资金亏到归零=破产。
+  // —— 投机彩头（K线上偶现的金币，需"投机"跳跃够到）——
+  COIN_DIST: 900,      // 撒币间距大幅拉大（240→900）：金币稀有，约每屏0~1枚，捡钱=偶遇投机机会而非日常
+  COIN_PROB: 0.5,      // 间隔点上撒币概率（0.85→0.5）：进一步稀释，整段行情仅零星几枚
+  COIN_LOW_VAL: 40,    // 地面/低空币基础面值（骑过即捡）
+  COIN_HIGH_VAL: 150,  // 高空币面值提高（120→150）：稀有+难够，投机回报更诱人
+  COIN_HIGH_RATE: 0.7, // 高空币占比大幅提高（0.34→0.7）：多数币要"投机"跳跃才够到，呼应玩法定位
+  COIN_R: 18,          // 拾取判定半径（车中心到币的距离）
+  // —— 主动起跳 ——
+  JUMP_V: 15,          // 地面按跳跃键的上抛初速度（原地起跳够高位币）
+  JUMP_COOLDOWN: 0.12, // 起跳后再次起跳的冷却（秒），防按住连跳贴地
+};
+// 物理常量别名（兼容旧引用）
+const GRAV=CONFIG.GRAV, ENGINE=CONFIG.ENGINE, MAXV=CONFIG.MAXV, FRICT=CONFIG.FRICT, AIRTQ=CONFIG.AIRTQ;
+const CRUISE_V=CONFIG.CRUISE_V, CRUISE_ACC=CONFIG.CRUISE_ACC;
+let gasOn=false;
+
+let bike, cam, camY=0, state, score, flips, startT, airTime, comboMul;
+let particles=[], shakeT=0, shakeMag=0, distScore=0, airScore=0, trickScore=0, perfectLands=0;
+let crashCtx=null;   // 翻车时的股价/天数上下文
+let coins=[], coinScore=0;   // K线上散落的"捡钱机会"——骑过/跳起够到即捡入资金；coinScore 累计本局捡币额
+// ===== 飞钱反馈：盈利/捡币时金币从触发点飞向左上角资金HUD并汇聚 =====
+let flyMoney=[];          // {sx,sy,tx,ty,t,dur,val,dollar} 屏幕坐标贝塞尔飞行
+let cashPulse=0;          // HUD 资金脉冲(>0 时数字放大泛绿)，飞钱抵达时点燃
+function spawnFlyMoney(worldX, worldY, amount, big){
+  // 世界坐标→屏幕坐标（draw 里 translate(-cam,camY)，故 screen = world - cam(x) / world + camY(y)）
+  const sx = worldX - cam;
+  const sy = worldY + camY;
+  // 目标：左上角"资金"HUD 数字处（屏幕固定坐标）
+  const hudEl = document.getElementById('scoreVal');
+  let tx=70, ty=42;
+  if(hudEl){ const r=hudEl.getBoundingClientRect(); tx=r.left+r.width*0.5; ty=r.top+r.height*0.5; }
+  const cnt = big ? 7 : (amount>=100?5:3);   // 钱越多飞越多枚
+  for(let i=0;i<cnt;i++){
+    flyMoney.push({
+      sx:sx+(Math.random()-0.5)*26, sy:sy+(Math.random()-0.5)*20,
+      tx:tx+(Math.random()-0.5)*10, ty:ty+(Math.random()-0.5)*8,
+      cx:sx+(Math.random()-0.3)*60, cy:sy-60-Math.random()*70,   // 控制点：先上抛再俯冲，弧线汇聚
+      t:0, dur:0.55+Math.random()*0.28, delay:i*0.045,
+      val:Math.round(amount/cnt), big, arrived:false
+    });
+  }
+}
+// ===== 做多/做空持仓状态 =====
+// position: null=空仓 | {dir:1做多/-1做空, entryPrice, entryT, steps, stake}
+let position=null, pnlScore=0, posCount=0, posWins=0, lastClosePop=0;
+let runStartCash=0, runPeak=0, runTrough=0, runMaxDrawdown=0;   // v1.0.60: 本场资金峰值/回撤追踪
+let bankrupt=false;  // 本局是否因资金归零破产出局
+let lastPnlTier=0;   // 浮盈台阶：每跨过一档(每 +120) 叮一声，给"赌对了"的即时反馈
+// ===== Combo 押注 —— 连胜奖励:平仓盈利 combo+1,亏损/超时清零 =====
+// 层级: 0=基础(20%仓) / 1=x2 STREAK(25%) / 2=x3 HOT(30%) / 3=x4 ON FIRE(35%) / 4=x5 LEGEND(40%封顶)
+let comboStreak=0;
+let comboIdleT=0;    // 空仓计时器(秒),连续空仓 5 秒清零 combo
+const COMBO_TIERS = [
+  { pct: 0.20, label: '',              cls: '' },              // 基础
+  { pct: 0.25, label: '×2 STREAK',     cls: 'tier1' },
+  { pct: 0.30, label: '×3 HOT',        cls: 'tier2' },
+  { pct: 0.35, label: '×4 ON FIRE',    cls: 'tier3' },
+  { pct: 0.40, label: '×5 LEGEND',     cls: 'tier4' },
+];
+const COMBO_IDLE_LIMIT = 5.0;   // 空仓超时清零(秒)
+function comboPct(){
+  let pct = COMBO_TIERS[Math.min(comboStreak, COMBO_TIERS.length-1)].pct;
+  if(hasBuff('oldhand'))  pct += 0.05;   // 老手直觉 +5%
+  if(hasBuff('leverage')) pct += 0.10;   // 加杠杆 +10%
+  return pct;
+}
+function updateStreakUI(popIt){
+  const box=document.getElementById('streakBox'); if(!box) return;
+  const tier=COMBO_TIERS[Math.min(comboStreak, COMBO_TIERS.length-1)];
+  if(comboStreak<=0){ box.className=''; return; }
+  box.className='show '+tier.cls;
+  const lbl=document.getElementById('streakLabel'); if(lbl) lbl.textContent=tier.label;
+  if(popIt){
+    box.classList.remove('pop'); void box.offsetWidth; box.classList.add('pop');
+    setTimeout(()=>box.classList.remove('pop'),240);
+  }
+}
+function breakStreak(){
+  if(comboStreak<=0) return;
+  const box=document.getElementById('streakBox');
+  if(box){
+    box.classList.add('break');
+    setTimeout(()=>{ box.className=''; }, 320);
+  }
+  comboStreak=0;
+  if(typeof blip==='function'){ try{ blip(180,0.08,'sawtooth',0.045); }catch(_){}}
+}
+
+// ========================================================================
+// Roguelike Buff 卡系统 —— 每累计盈利 $500 弹 3 张卡片,选 1 张持续到本局结束
+// ========================================================================
+// 稀有度: common(灰白·70%) / rare(青绿·25%) / legend(雾红·5%)
+// tags 语义:
+//   defense = 防御(应对巅峰/见顶/风险) · offense = 进攻(应对深渊/暴涨/抄底加仓)
+//   yield   = 稳健(应对派息/慢牛/中长线) · universal = 通用(任何事件都合适)
+// 每张牌可有多个 tag,进入不同事件专属池
+const BUFF_CARDS = [
+  // ---- 普通卡(6 张) ----
+  { id:'oldhand',    name:'老手直觉',   rarity:'common', desc:'每笔仓位 +5%',
+    hint:'仓位 25% 起步,略微激进', tags:['universal','yield'] },
+  { id:'combo_hot',  name:'手感火热',   rarity:'common', desc:'Combo 空仓超时 5s → 10s',
+    hint:'不用担心平仓后被清零', tags:['universal'] },
+  { id:'combo_bonus',name:'连胜复利',   rarity:'common', desc:'Combo 每升 1 档奖励 +$50',
+    hint:'升到 x5 累计送 $200', tags:['offense','universal'] },
+  { id:'coin_x2',    name:'秀一下大师', rarity:'common', desc:'秀一下捡金币收益 ×2',
+    hint:'跳跃派专属', tags:['universal'] },
+  { id:'top_bonus',  name:'涨停敏感',   rarity:'common', desc:'单笔盈利 >30% 额外 +$100',
+    hint:'鼓励重仓抓大波段', tags:['offense','yield'] },
+  { id:'flip_x15',   name:'逆势王',     rarity:'common', desc:'反手平仓 pnl ×1.5',
+    hint:'反手党爽卡', tags:['offense','defense'] },
+  // ---- 稀有卡(5 张) ----
+  { id:'leverage',   name:'加杠杆',     rarity:'rare',   desc:'每笔仓位 +10%,爆仓临界提前(<30%)',
+    hint:'高风险 · 双刃剑', tags:['offense'] },
+  { id:'batch_open', name:'分批建仓',   rarity:'rare',   desc:'加仓封顶 5→7 步',
+    hint:'满仓上限拉满', tags:['offense'] },
+  { id:'stoploss',   name:'止损保险',   rarity:'rare',   desc:'每局第一次亏损自动平在 -20%',
+    hint:'新手保命卡', tags:['defense','yield'] },
+  { id:'iron_head',  name:'铁头功',     rarity:'rare',   desc:'资金<20% 时给 3s 无敌,浮亏不结算',
+    hint:'临界救命符', tags:['defense'] },
+  { id:'precise',    name:'精准平仓',   rarity:'rare',   desc:'主动平仓(非反手) pnl ×1.2',
+    hint:'见好就收流', tags:['defense','yield'] },
+  // ---- 传说卡(3 张) ----
+  { id:'legend_calm',name:'传奇冷静',   rarity:'legend', desc:'×5 LEGEND 首次亏损不清零',
+    hint:'保连胜神卡', tags:['defense','yield'] },
+  { id:'safe_bet',   name:'保本单',     rarity:'legend', desc:'每局 1 次:亏损平仓自动变 0',
+    hint:'一次免死', tags:['defense','yield'] },
+  { id:'short_ace',  name:'短线鬼才',   rarity:'legend', desc:'持仓<5s pnl ×2,>10s pnl ×0.7',
+    hint:'快进快出流,改变节奏', tags:['offense','defense'] },
+];
+const BUFF_RARITY_WEIGHT = { common: 70, rare: 25, legend: 5 };
+const BUFF_RARITY_COLOR  = { common: '#9aa3b0', rare: '#3ddc97', legend: '#e06d6d' };
+const BUFF_RARITY_LABEL  = { common: '普通',    rare: '稀有',    legend: '传说'    };
+const BUFF_NODE_APPROACH = 260;                 // 骑近 260px 内开始闪烁提示
+const BUFF_NODE_HL_RANGE = 44;                  // 节点前后 44px 内 K 线段染青绿高亮
+
+// v1.0.56: 事件类型分类 —— label 关键词识别 → 4 类事件专属 buff 池
+// peak(巅峰) → defense · abyss(深渊) → offense · surge(暴涨) → offense · yield(派息) → yield
+function classifyEvent(label){
+  if(!label) return 'story';
+  if(/巅峰|顶|创高|冲高|新高|爆发|狂/.test(label)) return 'peak';
+  if(/深渊|崩|底|危机|暴跌|熔断|血洗|爆雷|退市|寒冬|谷底|雷曼|关税|大跌/.test(label)) return 'abyss';
+  if(/暴涨|翻倍|起飞|疯涨|井喷|逼空|反弹/.test(label)) return 'surge';
+  if(/派息|分红|送股|回购/.test(label)) return 'yield';
+  return 'story';   // 兜底:自由文本历史事件(如"911 复市""互联网泡沫顶")
+}
+// 事件类型 → 卡池主 tag 映射(专属池 tag,通用池永远补位)
+const EVENT_TAG_MAP = {
+  peak:  'defense',   // 巅峰:见顶该防御
+  abyss: 'offense',   // 深渊:抄底该进攻
+  surge: 'offense',   // 暴涨:趋势该冲锋
+  yield: 'yield',     // 派息:稳健该慢牛
+  story: 'universal', // 未分类:通用池
+};
+// 事件横幅文案模板:抽卡遮罩顶部渲染,把叙事戳到玩家脸上
+const EVENT_HEADLINE = {
+  peak:  { icon:'▲', color:'#e06d6d', hint:'山顶已至 · 该出手了'   },
+  abyss: { icon:'▼', color:'#3ddc97', hint:'血流成河 · 勇者的机会' },
+  surge: { icon:'⚡', color:'#e06d6d', hint:'趋势起飞 · 上车不上车' },
+  yield: { icon:'◈', color:'#c8a95c', hint:'股东会到 · 稳中求进'   },
+  story: { icon:'●', color:'#9aa3b0', hint:'历史时刻 · 见招拆招'   },
+};
+
+// v1.0.56: 抽卡节点由"位置比例"改为"事件驱动" —— reset() 里从 trackEvents 挑最"炸"的 3 个作为节点
+// 优先级:peak/abyss(见顶/见底最戏剧化)> surge > yield > story
+// 若事件不足 3 个(比如老美股赛道自定义事件少),fallback 到旧的 [0.25,0.55,0.85] 均分位置
+const EVENT_PRIORITY = { peak:5, abyss:5, surge:4, surge_up:4, yield:2, story:1 };
+function pickBuffNodesFromEvents(){
+  const nodes = [];
+  if(trackEvents.length >= 3){
+    // 按类型优先级排序 + 位置去重(相邻 800px 内只留一个,避免节点堆叠)
+    const scored = trackEvents.map(e => ({
+      x:e.x, date:e.date, label:e.label,
+      kind: classifyEvent(e.label),
+      pri: EVENT_PRIORITY[classifyEvent(e.label)] || 1,
+    })).sort((a,b)=> b.pri - a.pri || a.x - b.x);
+    const chosen = [];
+    for(const c of scored){
+      if(chosen.length>=3) break;
+      // 前 5% 太贴开场·后 5% 太贴终点,不合适做抽卡节点(玩家来不及反应/已冲线)
+      if(c.x < trackLen*0.10 || c.x > trackLen*0.92) continue;
+      // 去重:与已选节点距离 >800px 才收
+      if(chosen.some(p => Math.abs(p.x - c.x) < 800)) continue;
+      chosen.push(c);
+    }
+    // 补位:如果去重后不满 3 个,从剩余里再放宽拿(距离 400px 也行)
+    if(chosen.length < 3){
+      for(const c of scored){
+        if(chosen.length>=3) break;
+        if(chosen.some(p => p.x === c.x)) continue;
+        if(c.x < trackLen*0.05 || c.x > trackLen*0.95) continue;
+        if(chosen.some(p => Math.abs(p.x - c.x) < 400)) continue;
+        chosen.push(c);
+      }
+    }
+    // 按 x 升序,让节点顺序 = 遭遇顺序
+    chosen.sort((a,b)=>a.x - b.x);
+    for(const c of chosen){
+      nodes.push({ x:c.x, snapshotted:false, evtKind:c.kind, evtDate:c.date, evtLabel:c.label, evtPct:0, playerSnapshot:null });
+    }
+  }
+  // fallback:事件不够,用旧的均分位置(kind=story,走 universal 池)
+  if(nodes.length < 3){
+    const ratios = [0.25, 0.55, 0.85];
+    for(let i=nodes.length; i<3; i++){
+      nodes.push({ x: trackLen * ratios[i], snapshotted:false, evtKind:'story', evtDate:'', evtLabel:'', evtPct:0, playerSnapshot:null });
+    }
+  }
+  return nodes;
+}
+
+let activeBuffs = [];        // 已选中的 buff 卡 id 数组(有序,最新在末)
+let buffPickState = null;    // 当前抽卡态: null | { candidates:[3 张卡], deadline?}
+let buffPaused = false;      // 抽卡半暂停标志(K 线冻结,主循环仍在跑但读它)
+let buffNodes = [];          // v1.0.51: 抽卡节点数组 [{x, fired}] · reset() 里按 trackLen 布置
+
+function hasBuff(id){ return activeBuffs.indexOf(id) !== -1; }
+// v1.0.59: 计算玩家已有 buff 的 tag 直方图 —— 用于协同加权(同 tag 已有 → 追牌概率提升)
+function getOwnedTagHist(){
+  const h = {};
+  for(const id of activeBuffs){
+    const c = BUFF_CARDS.find(x => x.id === id);
+    if(!c) continue;
+    for(const t of (c.tags || [])){
+      if(t === 'universal') continue;   // universal 不算特化 tag
+      h[t] = (h[t] || 0) + 1;
+    }
+  }
+  return h;
+}
+// v1.0.59: 按 tag 协同度给候选卡加权 —— 已有 offense 卡 → offense 新卡权重 ×(1+0.5*count)
+function pickWeightedByTag(cands){
+  if(cands.length <= 1) return cands[0] || null;
+  const hist = getOwnedTagHist();
+  const weights = cands.map(c => {
+    let w = 1;
+    for(const t of (c.tags || [])){
+      if(hist[t]) w *= (1 + 0.5 * hist[t]);   // 每张同 tag 卡 +50% 权重
+    }
+    return w;
+  });
+  const total = weights.reduce((s,w)=>s+w, 0);
+  let r = Math.random() * total;
+  for(let i=0; i<cands.length; i++){
+    r -= weights[i];
+    if(r <= 0) return cands[i];
+  }
+  return cands[cands.length-1];
+}
+// v1.0.56: 按事件类型抽 3 张 —— 2 张来自事件专属 tag 池,1 张来自 universal 池(保多样性)
+// 稀有度权重仍生效(70/25/5),但先按 tag 缩小候选,再按 rarity 挑
+function pickBuffCandidates(n, evtKind){
+  evtKind = evtKind || 'story';
+  const majorTag = EVENT_TAG_MAP[evtKind] || 'universal';
+  const available = BUFF_CARDS.filter(c => !hasBuff(c.id));
+  // 池切分:主池(命中事件 tag) / 通用池(带 universal tag) / 全池 fallback
+  const primary   = available.filter(c => (c.tags||[]).includes(majorTag));
+  const universal = available.filter(c => (c.tags||[]).includes('universal'));
+  // 拿卡:第 1、2 张优先从 primary 池挑,第 3 张从 universal 挑;不够就从全池补
+  const picks = [];
+  const drawFromPool = (pool) => {
+    if(pool.length === 0) return null;
+    // 稀有度权重
+    const r = Math.random()*100;
+    let rarity = 'common';
+    if(r < BUFF_RARITY_WEIGHT.legend) rarity='legend';
+    else if(r < BUFF_RARITY_WEIGHT.legend + BUFF_RARITY_WEIGHT.rare) rarity='rare';
+    let cands = pool.filter(c => c.rarity===rarity);
+    if(cands.length===0) cands = pool.filter(c => c.rarity==='rare');
+    if(cands.length===0) cands = pool;
+    return pickWeightedByTag(cands);   // v1.0.59: 从同稀有度候选里按 tag 协同度加权抽
+  };
+  const remove = (card) => {
+    if(!card) return;
+    picks.push(card);
+    [available, primary, universal].forEach(pool => {
+      const idx = pool.indexOf(card);
+      if(idx>=0) pool.splice(idx, 1);
+    });
+  };
+  // 目标顺序:2 primary + 1 universal;不够就 fallback 到 available
+  const plan = [primary, primary, universal];
+  for(let i=0; i<n; i++){
+    let card = drawFromPool(plan[i] || available);
+    if(!card) card = drawFromPool(available);   // 主池/通用池抽干,从全池兜底
+    remove(card);
+  }
+  return picks;
+}
+function triggerBuffPick(node){
+  if(buffPickState) return;
+  const kind = (node && node.evtKind) || 'story';
+  const cands = pickBuffCandidates(3, kind);
+  if(cands.length===0) return;   // 卡池抽完了,不弹
+  buffPickState = { candidates: cands, evtKind:kind, evtDate:node?node.evtDate:'', evtLabel:node?node.evtLabel:'' };
+  buffPaused = true;
+  renderBuffPickUI();
+  if(typeof blip==='function'){ try{ blip(880,0.15,'sine',0.06); }catch(_){}}
+}
+function pickBuff(idx){
+  if(!buffPickState) return;
+  const c = buffPickState.candidates[idx];
+  if(!c) return;
+  activeBuffs.push(c.id);
+  buffPickState = null;
+  buffPaused = false;
+  document.getElementById('buffPickOv').style.display='none';
+  const bar = document.getElementById('buffPickPosBar'); if(bar) bar.classList.remove('active');   // v1.0.57
+  updateBuildBar();
+  // 反馈音:选中稀有度决定音高
+  if(typeof blip==='function'){
+    const freq = c.rarity==='legend' ? 1320 : c.rarity==='rare' ? 990 : 660;
+    try{ blip(freq, 0.12, 'triangle', 0.08); }catch(_){}
+  }
+}
+function renderBuffPickUI(){
+  const ov = document.getElementById('buffPickOv');
+  const cardBox = document.getElementById('buffPickCards');
+  cardBox.innerHTML = '';
+  // v1.0.56: 事件横幅 —— 顶部标题动态改成事件驱动叙事
+  const kind = buffPickState.evtKind || 'story';
+  const meta = EVENT_HEADLINE[kind] || EVENT_HEADLINE.story;
+  const evtLabel = buffPickState.evtLabel || '';
+  const evtDate  = buffPickState.evtDate  || '';
+  const titleEl = document.querySelector('#buffPickOv .buffTitle');
+  const subEl   = document.querySelector('#buffPickOv .buffSub');
+  if(titleEl && subEl){
+    if(evtLabel){
+      // 有事件:顶部渲染彩色事件行
+      titleEl.innerHTML = `<span style="color:${meta.color}">${meta.icon}</span> ${evtDate ? evtDate.slice(0,7)+' · ' : ''}${evtLabel}`;
+      titleEl.style.color = meta.color;
+      titleEl.style.letterSpacing = '3px';
+      titleEl.style.fontSize = '15px';
+      subEl.textContent = meta.hint + ' · 三选一 · 或先平仓落袋';
+    } else {
+      // 无事件(fallback story):恢复默认
+      titleEl.textContent = '交易升级';
+      titleEl.style.color = '';
+      titleEl.style.letterSpacing = '6px';
+      titleEl.style.fontSize = '';
+      subEl.textContent = '选一张能力卡 · 或先平仓落袋';
+    }
+  }
+  // v1.0.57: 持仓状态条 —— 有持仓才显示,允许平仓落袋
+  refreshPickHudPatch();
+  buffPickState.candidates.forEach((c, i) => {
+    const el = document.createElement('div');
+    el.className = 'buffCard rarity-' + c.rarity;
+    el.innerHTML = `
+      <div class="bcHead">
+        <span class="bcNum">${i+1}</span>
+        <span class="bcRarity">${BUFF_RARITY_LABEL[c.rarity]}</span>
+      </div>
+      <div class="bcName">${c.name}</div>
+      <div class="bcDesc">${c.desc}</div>
+      <div class="bcHint">${c.hint}</div>
+    `;
+    el.onclick = () => pickBuff(i);
+    cardBox.appendChild(el);
+  });
+  ov.style.display='flex';
+}
+// v1.0.57: 抽卡时刷新持仓条(含浮动盈亏)· 平仓后自动刷新
+function refreshPickHudPatch(){
+  const bar = document.getElementById('buffPickPosBar');
+  if(!bar) return;
+  if(!buffPickState){ bar.classList.remove('active'); return; }
+  bar.classList.add('active');
+  const dirEl   = document.getElementById('ppDir');
+  const stakeEl = document.getElementById('ppStake');
+  const pnlEl   = document.getElementById('ppPnl');
+  const btn     = document.getElementById('ppClose');
+  if(!position){
+    // 无持仓 → 显示"暂无持仓"提示,平仓按钮禁用
+    dirEl.textContent = '暂无持仓';
+    dirEl.className = 'ppDir ppEmpty';
+    stakeEl.textContent = '';
+    pnlEl.textContent = '';
+    pnlEl.className = 'ppPnl';
+    if(btn){ btn.disabled = true; btn.style.opacity = '0.35'; btn.style.cursor='default'; }
+    return;
+  }
+  // 有持仓:算浮动盈亏(1:1 现货,与线上主逻辑一致)
+  const t = TRACKS[trackKey];
+  const unit = t ? t.unit : '$';
+  const pr = priceAt(bike.x);
+  const chgPct = (pr.price - position.entryPrice) / Math.max(1e-6, position.entryPrice) * 100;
+  const pnl = Math.round(position.stake * chgPct/100 * position.dir);
+  dirEl.textContent = position.dir===1 ? '做多' : '做空';
+  dirEl.className = 'ppDir ' + (position.dir===1 ? 'long' : 'short');
+  stakeEl.textContent = unit + position.stake.toLocaleString();
+  const pnlSign = pnl>=0 ? '+' : '−';
+  pnlEl.textContent = pnlSign + unit + Math.abs(pnl).toLocaleString();
+  pnlEl.className = 'ppPnl ' + (pnl>=0 ? 'win' : 'lose');
+  if(btn){ btn.disabled = false; btn.style.opacity = '1'; btn.style.cursor='pointer'; }
+}
+// v1.0.57: 平仓按钮点击绑定(只挂一次)· 允许触屏和鼠标操作
+(function bindBuffPickCloseBtn(){
+  const btn = document.getElementById('ppClose');
+  if(!btn) return;
+  btn.addEventListener('click', (ev)=>{
+    ev.preventDefault();
+    if(!buffPickState) return;
+    if(!position) return;
+    closePosition(false);
+    refreshPickHudPatch();
+  });
+})();
+function updateBuildBar(){
+  const bar = document.getElementById('buildBar');
+  if(!bar) return;
+  if(activeBuffs.length===0){ bar.style.display='none'; return; }
+  bar.style.display='flex';
+  bar.innerHTML = activeBuffs.map(id => {
+    const c = BUFF_CARDS.find(b => b.id===id);
+    if(!c) return '';
+    return `<span class="buildDot rarity-${c.rarity}" title="${c.name}: ${c.desc}">${c.name.substr(0,2)}</span>`;
+  }).join('');
+}
+// v1.0.58: 赛季徽章 —— round>=1 时显示"第 N 局 · 峰值 $X",无存档则隐藏
+// v1.0.59: 显示 "第 K/N 回合 · 峰值 $X",K = round+1(进行中回合),N = matchLen
+function updateSeasonBadge(){
+  const el = document.getElementById('seasonBadge');
+  if(!el) return;
+  const s = getSeason();
+  if(!s || s.round < 1){
+    el.classList.remove('show'); el.classList.add('hide');
+    return;
+  }
+  const cur = Math.min(s.round + 1, s.matchLen);   // 当前进行中回合(不超过赛程总数)
+  el.innerHTML = `第 <span class="sbR">${cur}/${s.matchLen}</span> 回合 · 峰值 <span class="sbP">$${s.peak.toLocaleString()}</span>`;
+  el.classList.add('show'); el.classList.remove('hide');
+}
+// v1.0.60: 对战内不再触发抽卡 —— buffNodes 只用于「休整室复盘」记录玩家路过每个事件节点时的持仓快照
+// 抽卡逻辑搬到局间休整室(openIntermission),这里只默默 snapshot
+function recordBuffSnapshots(){
+  if(state!=='play' || bankrupt) return;
+  // 追踪本场资金峰值/回撤
+  if(score > runPeak){ runPeak = score; runTrough = score; }
+  if(score < runTrough) runTrough = score;
+  const dd = runPeak > 0 ? (runTrough - runPeak) / runPeak : 0;   // 负值
+  if(dd < runMaxDrawdown) runMaxDrawdown = dd;
+  // 快照事件节点:玩家路过时的持仓 + 事件本身的涨跌
+  for(const n of buffNodes){
+    if(!n.snapshotted && bike.x >= n.x){
+      n.snapshotted = true;
+      n.playerSnapshot = position
+        ? { dir: position.dir, stake: position.stake }
+        : { dir: 0 };   // 空仓
+      // 计算事件涨跌:节点当前价 vs 起始价
+      const px = priceAt(n.x);
+      if(px && startPrice){
+        n.evtPct = (px - startPrice) / startPrice * 100;
+      }
+    }
+  }
+}
+
+let jumpHints=0;     // 起跳教学提示已展示次数（跨局保留，只在最初几次起飞教学）
+let jumpCD=0;        // 起跳冷却计时（秒），防按住连跳贴地
+let best = +(localStorage.getItem('stonk_best_'+trackKey)||0);
+
+function reset(){
+  const gy0=groundY(80);
+  bike={ x:80, y:gy0-24, vx:0, vy:0, ang:groundAngle(80), va:0, onGround:true, wheel:0, dead:false, flipAcc:0, lastGY:0, squash:0 };
+  // v1.0.58: 起步资金从赛季存档读(第 N 局起,cash 滚动),无存档回落到 START_CASH
+  cam=0; camY = H*0.56 - bike.y; score=getSeasonStartCash(); distScore=0; airScore=0; trickScore=0; perfectLands=0;
+  runStartCash = score;   // v1.0.60: 本场起始本金,复盘室用
+  runPeak = score;        // v1.0.60: 本场资金峰值
+  runTrough = score;      // v1.0.60: 本场资金谷值(峰值之后的最低点,算最深回撤)
+  runMaxDrawdown = 0;     // v1.0.60: 从峰值算起的最深回撤(负数)
+  position=null; pnlScore=0; posCount=0; posWins=0; lastClosePop=0; bankrupt=false;
+  comboStreak=0; comboIdleT=0; updateStreakUI(false);   // Combo 归零
+  // v1.0.59: buff 卡跨回合累积 —— 从赛季存档恢复已有 buffs,形成 build 成长感(金铲铲装备)
+  const _s = getSeason();
+  activeBuffs = (_s && Array.isArray(_s.buffs)) ? _s.buffs.slice() : [];
+  buffPickState=null; buffPaused=false;
+  buffNodes = pickBuffNodesFromEvents();  // v1.0.56: 从 trackEvents 挑最"炸"的 3 个作为抽卡节点(fallback 均分位置)
+  updateBuildBar();
+  updateSeasonBadge();   // v1.0.58: 每局开始时刷新赛季徽章
+  const bpo=document.getElementById('buffPickOv'); if(bpo) bpo.style.display='none';
+  window._legendCalmUsed = false;   // 传奇冷静每局充能 1 次
+  window._safeBetUsed = false;      // 保本单每局充能 1 次
+  window._stopLossUsed = false;     // 止损保险每局第一次亏损
+  window._ironHeadT = 0;            // 铁头功无敌计时(秒)
+  window._ironHeadUsed = false;     // 铁头功每局充能 1 次
+  flips=0; airTime=0; comboMul=1; particles=[]; shakeT=0; crashCtx=null; flyMoney=[]; cashPulse=0; wipeout.active=false; wipeout.endOnDone=false;
+  scatterCoins(); coinScore=0;
+  state='play'; startT=performance.now();
+  best = +(localStorage.getItem('stonk_best_'+trackKey)||0);
+}
+
+function spawnDust(x,y,n,col,spread){
+  for(let i=0;i<n;i++) particles.push({
+    x,y, vx:(Math.random()-0.5)*(spread||3)-bike.vx*0.15, vy:-(Math.random()*2.5+0.5),
+    life:1, col:col||'rgba(150,170,210,'
+  });
+}
+function shake(m){ shakeT=12; shakeMag=m; }
+function showCombo(big,sub,col){
+  const el=document.getElementById('combo');
+  document.getElementById('comboBig').textContent=big;
+  document.getElementById('comboBig').style.color=col||'#3ddc97';
+  document.getElementById('comboSub').textContent=sub;
+  el.style.opacity=1; clearTimeout(el._t);
+  el._t=setTimeout(()=>el.style.opacity=0,650);
+}
+
+// ===== 做多/做空：建仓 / 平仓 / 逐帧盈亏 =====
+// 仓位可视化 + 临界预警统一入口:updatePosBar/popCash/warnCash
+// - posBar 5 段亮/熄:按 position.steps 点亮,颜色跟仓位方向,满仓呼吸
+// - popCash():资金数字 30ms 弹跳(scale 1.08),开仓/加仓/正向平仓触发
+// - warnCash():资金数字 shake 3px + 变红,浮亏接近破产(资金余额<20%起始)时逐帧调用(自带节流 800ms)
+let _cashWarnT=0;
+function updatePosBar(){
+  const bar=document.getElementById('posBar'); if(!bar) return;
+  if(!position){ bar.className=''; return; }
+  const dirCls = position.dir===1 ? 'long' : 'short';
+  const full = position.steps>=CONFIG.POS_MAX_STEPS ? ' full' : '';
+  bar.className = 'show '+dirCls+full;
+  const segs=bar.querySelectorAll('.seg');
+  segs.forEach((s,i)=>{ s.classList.toggle('on', i<position.steps); });
+}
+function popCash(){
+  const el=document.getElementById('scoreVal'); if(!el) return;
+  el.classList.remove('pop'); void el.offsetWidth; el.classList.add('pop');
+  setTimeout(()=>el.classList.remove('pop'),140);
+}
+function warnCash(){
+  const now=performance.now();
+  if(now-_cashWarnT<800) return;   // 节流:0.8s 最多闪一次,别抽搐
+  _cashWarnT=now;
+  const el=document.getElementById('scoreVal'); if(!el) return;
+  el.classList.remove('warn'); void el.offsetWidth; el.classList.add('warn');
+  setTimeout(()=>el.classList.remove('warn'),200);
+  if(typeof blip==='function'){ try{ blip(220,0.05,'square',0.04); }catch(_){}}
+}
+// 判断当前世界坐标是否处于历史崩盘事件段附近（做空翻倍区）
+function inCrashEvent(wx){
+  for(const e of trackEvents){
+    if(Math.abs(wx-e.x) < curSeg*2.2) return true;
+  }
+  return false;
+}
+// 持仓盈亏（现货模型，1:1 真实）：盈亏金额 = 仓位金额 × 真实涨跌% × 方向。
+// 做多(dir=1)涨则赚、跌则亏；做空(dir=-1)反之。无杠杆放大、无强平爆仓——就是你真实赚/亏的钱。
+function posPnl(pos, curPrice){
+  const ret=(curPrice-pos.entryPrice)/Math.max(1e-6,pos.entryPrice); // 真实涨跌% (现价-开仓价)/开仓价
+  return ret*pos.dir*(pos.stake||0);   // × 仓位金额 = 真实盈亏额
+}
+// 做多/做空键：空仓→开第1笔仓位；同向持仓→再加一笔(最多 POS_MAX_STEPS)；反向持仓→反手平掉再开新仓
+function pressDir(dir){
+  if(state!=='play') return;
+  if(!position){ openPosition(dir); return; }
+  if(position.dir===dir){ addStake(); return; }   // 同向再按=加仓位
+  // 反向=反手：显式平掉旧仓(弹结算飘字)再开新仓，让"上一注落袋→新一注押反向"看得见
+  closePosition(false, true, 'flip'); openPosition(dir);
+}
+function openPosition(dir){
+  if(state!=='play'||position) return;
+  const pr=priceAt(bike.x);
+  const stepPct = comboPct();   // Combo 加成:基础 20%,连胜后升到 25/30/35/40%
+  const step=Math.max(50, Math.round(score*stepPct));
+  position={ dir, entryPrice:pr.price, entryT:performance.now(), steps:1, stake:step };
+  lastPnlTier=0;   // 新建仓，台阶归零
+  comboIdleT=0;    // 有仓位 → 停止 idle 计时
+  posCount++;
+  const lbl = (dir===1?'做多 $':'做空 $')+step;
+  const streakHint = comboStreak>0 ? ` · 连胜 ${Math.round(stepPct*100)}% 仓` : '再按同键加仓 · 越押越大';
+  showCombo(lbl, streakHint, dir===1?'#e06d6d':'#52b788');
+  sndTrade(dir);
+  updatePosBar(); popCash();
+}
+// 加仓：不改开仓价(锚定首次建仓价)，再押一笔本金进去(放大盈亏与可扛浮亏)。封顶 POS_MAX_STEPS 笔。
+function addStake(){
+  if(!position) return;
+  const maxSteps = hasBuff('batch_open') ? 7 : CONFIG.POS_MAX_STEPS;
+  if(position.steps>=maxSteps){
+    showCombo('已满仓 $'+position.stake, '押满本金 · 见好就收', '#3ddc97');
+    if(typeof blip==='function'){ try{ blip(440,0.06,'square',0.05); }catch(_){}}
+    return;
+  }
+  const stepPct = comboPct();
+  const step=Math.max(50, Math.round(score*stepPct));
+  position.steps++; position.stake+=step;
+  const dirTxt=position.dir===1?'多':'空';
+  const hot = position.steps>=4;
+  showCombo(dirTxt+' $'+position.stake, hot?'重仓 · 押反了也加倍亏':'加仓 · 仓位 $'+position.stake, position.dir===1?'#e06d6d':'#52b788');
+  // 音高随仓位升高，越加越亢奋
+  if(typeof blip==='function'){ try{ blip(560+Math.min(5,position.steps)*60, 0.07, 'triangle', 0.06); }catch(_){}}
+  shake(2+position.steps*0.8);
+  updatePosBar(); popCash();
+}
+function closePosition(silent, force, reason){
+  if(!position) return;
+  const held=(performance.now()-position.entryT)/1000;
+  if(held<CONFIG.POS_MIN_HOLD && !silent && !force) return;   // 防手抖：未到最短持有不响应主动平仓（反手/爆仓 force 跳过）
+  const pr=priceAt(bike.x);
+  const chgPct=(pr.price-position.entryPrice)/Math.max(1e-6,position.entryPrice)*100;
+  let pnl=posPnl(position, pr.price);   // 现货 1:1 真实盈亏额
+  pnl=Math.round(pnl);
+  // 现货模型：reason==='liq' 是资金见底自动平仓——亏到资金归零为止，不会让你"负债"(钳到刚好亏光)
+  if(reason==='liq'){ pnl = -score; }   // 扣到 score 恰好归零
+  // ===== Buff 效果:pnl 修正 =====
+  // 短线鬼才:持仓<5s pnl ×2 · >10s pnl ×0.7
+  if(hasBuff('short_ace') && reason!=='liq'){
+    if(held<5)      pnl = Math.round(pnl*2);
+    else if(held>10) pnl = Math.round(pnl*0.7);
+  }
+  // 精准平仓:主动平仓(非 flip/liq) pnl>0 时 ×1.2
+  if(hasBuff('precise') && !reason && pnl>0) pnl = Math.round(pnl*1.2);
+  // 逆势王:反手平仓 pnl ×1.5(不管盈亏)
+  if(hasBuff('flip_x15') && reason==='flip') pnl = Math.round(pnl*1.5);
+  // 涨停敏感:单笔 chgPct>30% 且盈利,额外 +$100
+  if(hasBuff('top_bonus') && pnl>0 && Math.abs(chgPct)>30) pnl += 100;
+  // 止损保险:每局第一次亏损自动平在 -20%(超过 -20% 的部分免掉)
+  if(hasBuff('stoploss') && !window._stopLossUsed && pnl<0 && reason!=='liq'){
+    const cap = -Math.round(position.stake * 0.20);   // 亏损上限 = 本金 20%
+    if(pnl < cap){
+      pnl = cap;
+      window._stopLossUsed = true;
+      showCombo('止损保险发动!', '亏损止在 -20% · 消耗 1 次', '#3ddc97');
+    }
+  }
+  // 保本单:每局 1 次:亏损平仓自动变 0(不含爆仓)
+  if(hasBuff('safe_bet') && !window._safeBetUsed && pnl<0 && reason!=='liq'){
+    pnl = 0;
+    window._safeBetUsed = true;
+    showCombo('保本单发动!', '亏损清零 · 一次机会已消耗', '#3ddc97');
+  }
+  pnlScore+=pnl; score+=pnl;
+  if(pnl>0){ posWins++; lastClosePop=pnl; }
+  if(!silent){
+    const dirTxt=position.dir===1?'多':'空';
+    const levTxt=position.stake?(' $'+position.stake):'';
+    if(reason==='liq'){   // 爆仓：浮亏吃光押进去的本金 → 原地栽倒一下
+      showCombo(pnl, '资金耗尽! 平'+dirTxt+levTxt+' 亏到归零 '+chgPct.toFixed(1)+'%', '#e06d6d'); sndCrash(); shake(20);
+      for(let i=0;i<26;i++) particles.push({x:bike.x,y:bike.y,vx:(Math.random()-0.5)*10,vy:-Math.random()*8,life:1,col:'rgba(255,90,90,',kind:'shard',seed:Math.random()*6.28});
+      triggerWipeout();   // 车原地跌倒 + 顿挫 + 红闪
+    } else if(reason==='flip'){   // 反手：先把旧仓落袋，飘字明示
+      const sign=pnl>=0?'+':'';
+      showCombo('平'+dirTxt+levTxt+' '+sign+pnl, '落袋 '+chgPct.toFixed(1)+'% · 反手反向押', pnl>=0?'#3ddc97':'#e06d6d'); sndFlip(); shake(3);
+      if(pnl>0) spawnFlyMoney(bike.x, bike.y-10, pnl, pnl>=200);
+    } else if(reason==='end_win' || reason==='end_loss'){   // 终点强制平仓:突出"到终点自动落袋"感
+      const sign=pnl>=0?'+':'';
+      const col = pnl>=0 ? '#3ddc97' : '#e06d6d';
+      showCombo('终点强平 '+sign+pnl, '到达终点·自动平'+dirTxt+levTxt+' '+chgPct.toFixed(1)+'%', col);
+      if(pnl>=0){ sndProfit(pnl>=200); shake(3);
+        for(let i=0;i<14;i++) particles.push({x:bike.x,y:bike.y,vx:(Math.random()-0.5)*6,vy:-Math.random()*5,life:1,col:'rgba(61,220,151,'});
+        if(pnl>0) spawnFlyMoney(bike.x, bike.y-10, pnl, pnl>=200);
+      } else { sndLoss(); shake(5);
+        for(let i=0;i<8;i++) particles.push({x:bike.x,y:bike.y,vx:(Math.random()-0.5)*5,vy:-Math.random()*4,life:1,col:'rgba(255,143,143,'});
+      }
+    } else if(pnl>=0){ showCombo('+'+pnl, '平'+dirTxt+levTxt+' · 这波吃到了 '+chgPct.toFixed(1)+'%', '#52b788'); sndProfit(pnl>=200); shake(3);
+      for(let i=0;i<12;i++) particles.push({x:bike.x,y:bike.y,vx:(Math.random()-0.5)*6,vy:-Math.random()*5,life:1,col:'rgba(61,220,151,'});
+      if(pnl>0) spawnFlyMoney(bike.x, bike.y-10, pnl, pnl>=200); }
+    else { showCombo(''+pnl, '平'+dirTxt+levTxt+' · 方向押反了 '+chgPct.toFixed(1)+'%', '#e06d6d'); sndLoss(); shake(5);
+      for(let i=0;i<8;i++) particles.push({x:bike.x,y:bike.y,vx:(Math.random()-0.5)*5,vy:-Math.random()*4,life:1,col:'rgba(255,143,143,'}); }
+  }
+  position=null;
+  updatePosBar();  // 仓位条熄灭
+  // ===== Combo 押注更新 =====
+  // 反手(flip) 的 pnl>0 也算连胜;liq 爆仓永远清零;主动/反手/正常平仓 pnl<=0 都清零
+  if(reason==='liq' || pnl<=0){
+    // 传奇冷静:×5 LEGEND 时首次亏损不清零(消耗一次)
+    if(hasBuff('legend_calm') && comboStreak>=4 && !window._legendCalmUsed){
+      window._legendCalmUsed = true;
+      showCombo('传奇冷静发动!', '连胜保住 · 一次机会已消耗', '#e06d6d');
+      if(typeof blip==='function'){ try{ blip(1200,0.15,'triangle',0.08); }catch(_){}}
+    } else {
+      breakStreak();
+    }
+  } else if(pnl>0){
+    const oldStreak = comboStreak;
+    comboStreak = Math.min(comboStreak+1, COMBO_TIERS.length-1);
+    updateStreakUI(true);
+    // 连胜复利:每升 1 档奖励 +$50
+    if(hasBuff('combo_bonus') && comboStreak > oldStreak){
+      score += 50;
+      showCombo('连胜复利 +$50', 'combo 升级奖励', '#3ddc97');
+    }
+  }
+  comboIdleT=0;   // 空仓 idle 计时归零(等下一次 openPosition 或超时)
+  if(pnl>0) popCash();  // 正向平仓资金入账,数字弹跳庆祝
+  // —— 破产判定：资金归零即出局（爆仓后若已无本金，结束本局）——
+  if(score<=0 && state==='play'){
+    score=0; crashCtx=pr; bankrupt=true;
+    if(wipeout.active){ wipeout.endOnDone=true; }  // 正在栽倒：等动画放完再结算
+    else endGame(false);
+    return;
+  }
+}
+
+// ===== 爆仓栽倒动画：车头猛栽/侧翻 + 顿挫 + 红闪，约 0.75s =====
+let wipeout={active:false, t:0, dur:0.75, endOnDone:false, dir:1};
+function triggerWipeout(){
+  if(wipeout.active) return;
+  wipeout.active=true; wipeout.t=0; wipeout.endOnDone=false;
+  wipeout.dir = Math.random()<0.5?1:-1;   // 随机往前栽或侧翻方向
+  bike.vx*=0.25;             // 顿挫：速度骤降
+  bike.va = wipeout.dir*0.5; // 给个翻转角速度，车头栽下去
+  bike.vy = -3.5;            // 微微弹起再砸下
+  bike.onGround=false;
+}
+
+function step(){
+  if(state!=='play') return;
+  // Buff 抽卡半暂停:K 线/车辆/pnl 全冻结,直到玩家选完卡
+  if(buffPaused) return;
+  // v1.0.60: 对战内不再触发抽卡,改为记录持仓快照供休整室复盘用
+  recordBuffSnapshots();
+  // ===== 爆仓栽倒动画期：跳过巡航加速，让车顿挫栽下去；放完再复位或结算破产 =====
+  if(wipeout.active){
+    wipeout.t += 1/60;
+    bike.vx*=0.90;                 // 持续顿挫减速
+    if(wipeout.t>=wipeout.dur){
+      wipeout.active=false;
+      if(wipeout.endOnDone){ endGame(false); return; }  // 破产：动画放完才结算
+      bike.va=0; bike.ang=groundAngle(bike.x);          // 没破产：扶正继续骑
+    }
+  }
+  // 地面：自动巡航（恒定向前，不再靠按键加速；起跳逻辑见下方"在地面"分支）
+  if(bike.onGround && !wipeout.active){
+    if(bike.vx > CRUISE_V) bike.vx=Math.max(CRUISE_V, bike.vx-CRUISE_ACC);
+    else                   bike.vx=Math.min(CRUISE_V, bike.vx+CRUISE_ACC);
+  }
+  if(jumpCD>0) jumpCD-=1/60;
+  // Combo 空仓超时:连续 5(有卡→10)秒空仓 → 连胜清零(逼玩家保持押注节奏,不能龟缩)
+  if(!position && comboStreak>0){
+    comboIdleT += 1/60;
+    const limit = hasBuff('combo_hot') ? 10.0 : COMBO_IDLE_LIMIT;
+    if(comboIdleT >= limit){ breakStreak(); comboIdleT=0; }
+  }
+  // 摩擦仅在地面生效：空中无地面摩擦，水平速度守恒，落地即满速（修\"跳完落地龟速\"bug）
+  if(bike.onGround) bike.vx*=FRICT;
+  // 地面刹车只能减速到 0，不允许倒车（跑酷单向冲刺，倒退无意义且影响手感）
+  bike.vx=Math.max(0, Math.min(MAXV, bike.vx));
+
+  bike.vy+=GRAV;
+  bike.x+=bike.vx;
+  bike.y+=bike.vy;
+
+  const gy=groundY(bike.x), ga=groundAngle(bike.x);
+  // 前方坡度：<0 表示前方在上坡（地面更高）
+  const look=Math.max(10,bike.vx*1.3);
+  const slope=(groundY(bike.x+look)-gy)/look;   // 单位坡度
+  const groundLevel=gy-24;
+
+  if(bike.y >= groundLevel && bike.vy >= 0){
+    // ===== 在/落到地面 =====
+    if(!bike.onGround){
+      // —— 落地结算 ——
+      let aN=((bike.ang-ga)%(Math.PI*2));
+      if(aN>Math.PI)aN-=Math.PI*2; if(aN<-Math.PI)aN+=Math.PI*2;
+      const wasAirborne = (flips>0 || airTime>0.35);   // 是否真正飞起来过
+      // 落地容差随赛道波动率收紧：越狂野的股票越难稳稳落地
+      const volFactor = 1.15 - (TRACKS[trackKey].vol-1)*0.16;   // vol1→0.99, vol1.5→0.91, vol2.4→0.77
+      // 速度因子：踩油门快进行情=车更难稳落地（速度换风险的代价之一）
+      // 落地瞬间速度越接近 MAXV，容差收得越紧：巡航(7)→×1.0，满速(18)→×0.72
+      const landV = Math.abs(bike.vx);
+      const spdFactor = 1 - Math.max(0, (landV-CRUISE_V)/(MAXV-CRUISE_V)) * 0.28;
+      const deadAng = CONFIG.LAND_DEAD_ANG * Math.max(0.6, volFactor) * spdFactor;
+      // 只有真正飞起来过、且落地姿态歪过阈值才翻车；小颠簸一律安全落地
+      if(wasAirborne && Math.abs(aN)>deadAng){
+        bike.dead=true; sndCrash(); shake(16); spawnDust(bike.x,gy-20,24,'rgba(255,120,120,',7);
+        crashCtx = priceAt(bike.x);   // 记录翻车时的股价/天数
+        endGame(false); return;
+      }
+      const perfect=Math.abs(aN)<CONFIG.PERFECT_ANG;
+      if(wasAirborne){
+        if(perfect){ perfectLands++; score+=200*comboMul; showCombo('PERFECT','稳稳落地 +'+(200*comboMul),'#3ddc97'); }
+        sndLand(); shake(perfect?5:9); spawnDust(bike.x,gy-20,perfect?16:10,'rgba(180,200,240,',5);
+      }
+      bike.va=0; bike.ang=ga; airTime=0; bike.flipAcc=0; comboMul=1;
+      // 悬挂压缩：按落地冲击速度给一个下沉量，drawBike 里弹性回弹（纯视觉，不改物理）
+      bike.squash = Math.min(1, Math.abs(bike.vy)/16);
+    }
+    bike.onGround=true; bike.y=groundLevel; bike.vy=0;
+    bike.ang+=(ga-bike.ang)*0.4;
+    const d=Math.max(0,bike.vx)*0.7; distScore+=d;   // 距离仅作表现统计(星级/分享卡)，不再计入资金
+    if(Math.abs(bike.vx)>7 && Math.random()<0.5) spawnDust(bike.x-14,gy-8,1,'rgba(140,160,200,',2);
+
+    // —— 主动起跳：地面按跳跃键即原地跃起（够高位币）——
+    if(gasOn && jumpCD<=0){
+      const slopeBoost = Math.max(0, -slope)*8;        // 上坡借势额外抬升
+      bike.onGround=false;
+      bike.vy = -(CONFIG.JUMP_V + slopeBoost);
+      bike.y = groundLevel-2;
+      jumpCD = CONFIG.JUMP_COOLDOWN;
+      sndJump(); spawnDust(bike.x-10,gy-6,8,'rgba(150,170,210,',4);
+      if(jumpHints<3){ jumpHints++; showCombo('↻ 翻跟头','空中按住秀一下键 · 翻一圈→捡币翻倍','#3fe0ff'); }
+      bike.wheel+=bike.vx*0.1; cam=bike.x-W*0.3;
+      return;   // 已起跳，跳过同帧坡顶弹射
+    }
+
+    // —— 坡顶弹射：仅极陡上坡 + 高速才自然起飞（保留为"行情突破"彩头，日常巡航不乱弹）——
+    const launch = -slope*bike.vx;
+    if(launch > 3.4 && bike.vx > 19){
+      bike.onGround=false;
+      bike.vy = -Math.min(30, 11 + launch*2.2);  // 基础 11 + 坡度加成，最高 30
+      bike.y = groundLevel-2;
+      sndJump(); spawnDust(bike.x-10,gy-6,8,'rgba(150,170,210,',4);
+    }
+  } else {
+    // ===== 空中 =====
+    bike.onGround=false;
+    // 只有真正飞起来（离地一定时间）才允许空翻控制，避免小颠簸时油门把车拧翻
+    if(airTime>CONFIG.AIR_CTRL_DELAY){
+      if(gasOn){
+        bike.va-=AIRTQ*0.5;     // 油门=前空翻
+      } else {
+        // 松手：朝当前地面姿态轻微回正，删刹车后给玩家"稳落地"的兜底手感
+        const ga2=groundAngle(bike.x);
+        let aDiff=((ga2-bike.ang)%(Math.PI*2));
+        if(aDiff>Math.PI)aDiff-=Math.PI*2; if(aDiff<-Math.PI)aDiff+=Math.PI*2;
+        bike.va+=aDiff*0.018;   // 轻回正力（0.012→0.018：松手后更主动帮你摆正落地，不抢主动翻圈手感）
+      }
+    }
+    bike.va*=0.99; airTime+=1/60;
+    // va 限幅，防止旋转失控
+    bike.va=Math.max(-CONFIG.VA_CLAMP,Math.min(CONFIG.VA_CLAMP,bike.va));
+    bike.ang+=bike.va;
+    const a=Math.max(0,bike.vx)*0.18; airScore+=a;   // 滞空仅作表现统计，不再计入资金
+    bike.flipAcc+=bike.va;
+    if(Math.abs(bike.flipAcc)>=Math.PI*2){
+      flips++; comboMul++;
+      const pts=500*comboMul; trickScore+=pts;   // 翻转仅作表现统计(星级/特技)，不再直接给资金
+      bike.flipAcc-=Math.sign(bike.flipAcc)*Math.PI*2;
+      sndFlip(); shake(4);
+      showCombo('FLIP'+(comboMul>1?(' x'+comboMul):''), comboMul>1?'空翻连击! 飙车技术拉满':'漂亮空翻! 落稳算技术星', '#3ddc97');
+      for(let i=0;i<10;i++) particles.push({x:bike.x,y:bike.y,vx:(Math.random()-0.5)*6,vy:(Math.random()-0.5)*6,life:1,col:'rgba(61,220,151,'});
+    }
+  }
+
+
+  bike.wheel+=bike.vx*0.1;
+  if(bike.squash>0) bike.squash=Math.max(0, bike.squash-0.12);   // 悬挂压缩弹性回弹衰减
+  cam=bike.x-W*0.3;
+
+  // ===== 捡钱机会判定：骑过/跳起够到金币 → 直接计入资金 =====
+  // 翻跟头连击时(comboMul>1) 捡到的币额 ×comboMul——做对操作又秀了一把，赚得更多
+  for(const c of coins){
+    if(c.got) continue;
+    if(c.x < bike.x-CONFIG.COIN_R-30 || c.x > bike.x+CONFIG.COIN_R+30) continue; // 只测附近
+    const dx=c.x-bike.x, dy=c.y-bike.y;
+    if(dx*dx+dy*dy <= CONFIG.COIN_R*CONFIG.COIN_R){
+      c.got=true;
+      const mul = comboMul>1 ? comboMul : 1;          // 翻跟头连击放大
+      const buffMul = hasBuff('coin_x2') ? 2 : 1;     // 秀一下大师:捡币 ×2
+      const gain = c.val*mul*buffMul;
+      score += gain; coinScore += gain;
+      sndCoin();
+      const tag = mul>1 ? ('+'+gain+'  x'+mul+'连击!') : ('+'+gain);
+      const sub = c.high ? (mul>1?'高位精彩操作·捡钱翻倍!':'跳起够到·抓住机会') : (mul>1?'连击吃币·赚翻!':'顺手捡钱');
+      showCombo(tag, sub, '#3ddc97');
+      for(let i=0;i<8;i++) particles.push({x:c.x,y:c.y,vx:(Math.random()-0.5)*5,vy:-Math.random()*4-1,life:1,col:'rgba(255,215,106,',kind:'coin',seed:Math.random()*6.28});
+      spawnFlyMoney(c.x, c.y, gain, mul>1);
+    }
+  }
+
+
+  // 粒子更新
+  for(const p of particles){ p.x+=p.vx; p.y+=p.vy; p.vy+=0.12; p.life-=0.03; }
+  particles=particles.filter(p=>p.life>0);
+  // 飞钱更新（屏幕坐标贝塞尔；抵达 HUD 时点燃资金脉冲）
+  for(const m of flyMoney){
+    if(m.delay>0){ m.delay-=1/60; continue; }
+    m.t += (1/60)/m.dur;
+    if(m.t>=1 && !m.arrived){ m.arrived=true; cashPulse=1; }
+  }
+  flyMoney=flyMoney.filter(m=>m.t<1.02);
+  if(cashPulse>0) cashPulse=Math.max(0,cashPulse-0.06);
+  if(shakeT>0) shakeT--;
+
+  engineSound(bike.vx);
+
+  if(bike.x>=trackLen-40){ sndWin(); endGame(true); return; }
+  updateHUD();
+}
+
+function fmtDate(iso){ // "2008-09-15" -> "2008.09" （HUD 低调常显用年月即可）
+  if(!iso) return '';
+  const p=iso.split('-'); return p[0]+'.'+p[1];
+}
+let evtToastTimer=null;
+function showEventToast(e){
+  const box=document.getElementById('evtToast');
+  document.getElementById('evDate').textContent=e.date ? e.date.slice(0,7) : '';
+  document.getElementById('evLabel').textContent=e.label;
+  box.classList.add('show');
+  if(typeof blip==='function'){ try{ blip(880,0.08,'square',0.06); setTimeout(()=>blip(1320,0.1,'square',0.06),90); }catch(_){}}
+  clearTimeout(evtToastTimer);
+  evtToastTimer=setTimeout(()=>box.classList.remove('show'), 1500);   // v1.0.56: 2.6s→1.5s,避免和抽卡横幅打架
+}
+function updateHUD(){
+  const sv=document.getElementById('scoreVal');
+  sv.textContent='$'+Math.floor(score).toLocaleString();
+  // 飞钱抵达脉冲：资金数字放大泛绿，给"到账"的爽感
+  if(cashPulse>0){
+    const s=1+cashPulse*0.35;
+    sv.style.transform='scale('+s.toFixed(3)+')';
+    sv.style.color='#3ddc97';
+  } else if(sv.style.transform){
+    sv.style.transform=''; sv.style.color='';
+  }
+  document.getElementById('spdFill').style.width=Math.min(100,Math.abs(bike.vx)/MAXV*100)+'%';
+  // 实时股价 / 真实日期 / 相对起始涨跌幅 —— 居中大字当主角
+  if(terrain.length){
+    const t=TRACKS[trackKey], pc=priceAt(bike.x);
+    const chg=startPrice? (pc.price-startPrice)/startPrice*100 : 0;
+    const up=chg>=0, arrow=up?'▲':'▼', col=up?'#e06d6d':'#52b788';  // 中国习惯：涨红跌绿（与赛道线统一）
+    const pStr = pc.price<1 ? pc.price.toFixed(4) : pc.price.toLocaleString();
+    const pb=document.getElementById('pbPrice'), pc2=document.getElementById('pbChg');
+    document.getElementById('pbDay').textContent = pc.date ? fmtDate(pc.date) : '';
+    pb.textContent=t.unit+pStr;
+    pc2.textContent=arrow+Math.abs(chg).toFixed(1)+'%';
+    pc2.style.color=col;
+    // 关键事件：骑过锚点时弹高亮 toast（每个只弹一次）
+    for(const e of trackEvents){
+      if(!e.hit && bike.x>=e.x){ e.hit=true; showEventToast(e); }
+    }
+    // —— 持仓浮动盈亏显示 ——
+    const posEl=document.getElementById('posBox');
+    const glowEl=document.getElementById('posGlow');
+    if(position){
+      const cp=priceAt(bike.x);
+      const cpct=(cp.price-position.entryPrice)/Math.max(1e-6,position.entryPrice)*100;
+      let fl=Math.round(posPnl(position, cp.price));
+      const good=fl>=0;
+      // 现货模型：无强平爆仓。持仓只有浮盈/浮亏，平仓才落袋。
+      // 唯一的出局边界是“破产”——当 当前资金+浮亏 ≤ 0（钱真的亏没了）时，自动平仓结束本局。
+      // —— 破产临界预警:剩余资金(score+浮亏) < 起始资金 20% 时,资金数字 shake+闪红+blip 提示 ——
+      if(fl<0 && (score+fl) < CONFIG.START_CASH*0.2){ warnCash(); }
+      // 铁头功:资金<20% 时给 3s 无敌,浮亏不结算(每局充能 1 次,消耗后不再触发)
+      if(hasBuff('iron_head') && !window._ironHeadUsed && fl<0 && (score+fl) < CONFIG.START_CASH*0.2){
+        window._ironHeadUsed = true;
+        window._ironHeadT = 3.0;
+        showCombo('铁头功发动!', '3 秒无敌 · 浮亏冻结', '#e06d6d');
+        if(typeof blip==='function'){ try{ blip(1440,0.2,'triangle',0.09); }catch(_){}}
+      }
+      if(window._ironHeadT > 0){
+        window._ironHeadT -= 1/60;
+        // 无敌期间跳过 liq 判定(浮亏冻结在临界)
+      } else if(score+fl <= 0){
+        closePosition(false, true, 'liq');   // 资金见底：自动平仓（closePosition 内含破产判定）
+        return;                               // 本帧后续持仓 UI 跳过（已无仓位）
+      }
+      const dirTxt=position.dir===1?'多':'空';
+      const levTag=position.stake?(' $'+position.stake):'';
+      const hint=position.steps>=CONFIG.POS_MAX_STEPS?'已满仓 · 平仓键结算':'同向键加仓 · 平仓键结算';
+      posEl.className='show '+(good?'win':'lose');
+      posEl.innerHTML=`<span class="pbDir">${dirTxt}${levTag}</span><span class="pbPnl">${good?'+':''}${fl}</span><span class="pbHint">${hint}</span>`;
+      // —— 4A 平仓键所见即所得：键上直接显示"按下即落袋的金额"，绿赚红亏，纯信息 ——
+      const cb2=document.getElementById('closeBtn');
+      if(cb2){ cb2.innerHTML='平仓<br><b style="font-size:18px;color:'+(good?'#0c1a13':'#5a1410')+'">'+(good?'+':'')+fl+'</b>';
+        cb2.style.background = good ? 'var(--acc)' : '#e06d6d'; }
+      // —— 边缘泛光跟"盈亏"走：赚钱→绿光、亏损→红光（全场"绿=赚/红=亏"统一，强度随幅度增长）——
+      if(glowEl){
+        if(good && fl>0){
+          const k = Math.min(1, fl/600);                 // 浮盈 0~600 映射 0~1 强度
+          glowEl.style.setProperty('--pg-col', `rgba(31,209,122,${(0.18+k*0.5).toFixed(3)})`);  // 赚=绿
+          glowEl.style.setProperty('--pg-blur', (40+k*70)+'px');
+          glowEl.style.setProperty('--pg-spread', (-30+k*8)+'px');
+          glowEl.style.setProperty('--pg-op', (0.55+k*0.45).toFixed(3));
+        } else if(fl<0){
+          const k = Math.min(1, -fl/600);                // 浮亏越大红光越强
+          glowEl.style.setProperty('--pg-col', `rgba(255,59,92,${(0.16+k*0.4).toFixed(3)})`);    // 亏=红
+          glowEl.style.setProperty('--pg-blur', (34+k*50)+'px');
+          glowEl.style.setProperty('--pg-spread', (-34+k*6)+'px');
+          glowEl.style.setProperty('--pg-op', (0.5+k*0.4).toFixed(3));
+        } else {
+          glowEl.style.setProperty('--pg-op','0');       // 持平不泛光
+        }
+      }
+      // —— 浮盈台阶音效：每跨过一档(每 +120 分) 叮一声，赌对的生理快感 ——
+      if(good){
+        const tier=Math.floor(fl/120);
+        if(tier>lastPnlTier){
+          const n=tier-lastPnlTier;
+          // 音高随台阶升高，越赚越亢奋
+          if(typeof blip==='function'){ try{ blip(680+Math.min(8,tier)*70, 0.07, 'triangle', 0.05); }catch(_){}}
+          lastPnlTier=tier;
+        } else if(tier<lastPnlTier){ lastPnlTier=tier; } // 回吐则降档，下次再涨还能再叮
+      }
+    } else {
+      posEl.className='';
+      posEl.innerHTML=`<span class="pbHint">↑做多 / ↓做空 押方向赚浮盈</span>`;
+      if(glowEl) glowEl.style.setProperty('--pg-op','0');   // 空仓灭光
+      // 4A 空仓：平仓键恢复默认文案与底色
+      const cb3=document.getElementById('closeBtn');
+      if(cb3){ cb3.innerHTML='平仓<br>结算'; cb3.style.background=''; }
+    }
+    syncPosBtns();
+  }
+}
+
+// ===== 渲染 =====
+function draw(){
+  const t=TRACKS[trackKey];
+  let sx=0,sy=0;
+  if(shakeT>0){ sx=(Math.random()-0.5)*shakeMag; sy=(Math.random()-0.5)*shakeMag; }
+  X.save(); X.translate(sx,sy);
+
+  // —— 落日天空：深蓝夜空顶 → 靛蓝 → 暖橙粉日落带（自然过渡，不泛青）——
+  const g=X.createLinearGradient(0,0,0,H);
+  g.addColorStop(0,'#0c0e13'); g.addColorStop(.45,'#14171f');
+  g.addColorStop(.68,'#222732'); g.addColorStop(.80,'#2e3340');
+  g.addColorStop(.90,'#262b36'); g.addColorStop(1,'#101216');
+  X.fillStyle=g; X.fillRect(-20,-20,W+40,H+40);
+
+  // outrun 太阳（地平线附近的大圆盘，被横线切割）
+  const horizon=H*0.78, sunR=Math.min(W,H)*0.30, sunCx=W*0.5, sunCy=horizon-sunR*0.30;
+  const sg=X.createLinearGradient(0,sunCy-sunR,0,sunCy+sunR);
+  sg.addColorStop(0,'#3a4150'); sg.addColorStop(.5,'#2c313d'); sg.addColorStop(1,'#1c2029');
+  X.save();
+  X.beginPath(); X.arc(sunCx,sunCy,sunR,0,7); X.clip();
+  X.fillStyle=sg; X.fillRect(sunCx-sunR,sunCy-sunR,sunR*2,sunR*2);
+  // 落日横切线（露出背景天空色）
+  X.globalCompositeOperation='destination-out';
+  for(let i=0;i<7;i++){ const ly=sunCy+sunR*0.08+i*sunR*0.16; const lh=2.5+i*1.6;
+    X.fillStyle='rgba(0,0,0,1)'; X.fillRect(sunCx-sunR,ly,sunR*2,lh); }
+  X.restore();
+  // (极简：去落日霓虹辉光)
+
+  // 视差远景山（速度感）
+  drawParallax(t);
+
+  // 透视网格地平线（仅地平线附近的远景收束带，不铺满前景，避免与起伏赛道线打架）
+  X.strokeStyle='rgba(255,255,255,.045)'; X.lineWidth=1;
+  // 横向收束线：限制在地平线下方一窄带（远景地面消失感）
+  const gridBand=(H-horizon)*0.34;
+  for(let i=1;i<=6;i++){ const yy=horizon+gridBand*Math.pow(i/6,1.9);
+    X.beginPath(); X.moveTo(0,yy); X.lineTo(W,yy); X.stroke(); }
+  // 纵向放射线（向地平线灭点收束 + 随相机滚动），同样只到窄带底
+  const vp=W*0.5, gOff=(cam*0.6)%80, gridBot=horizon+gridBand;
+  for(let gx=-W; gx<W*2; gx+=80){ const bx=gx-gOff;
+    X.beginPath(); X.moveTo(vp+(bx-vp)*0.12,horizon); X.lineTo(vp+(bx-vp)*0.5,gridBot); X.stroke(); }
+
+  // ===== 垂直相机：跟随车下方地面高度，把赛道锁在屏幕中下部 =====
+  // 价格大涨→地形上移，大跌→地形下移；camY 抵消之，避免车/线跑出屏幕(冲进顶部HUD或沉到底部)
+  // 基于"车下方地面"而非车身：行情趋势平移相机，但单次起跳仍是车在画面里腾空(手感不被吃掉)
+  const groundUnder = groundY(bike.x);
+  const targetCamY = H*0.62 - groundUnder;
+  camY += (targetCamY - camY) * 0.08;   // 缓动跟随，避免颠簸抖动
+
+  X.save(); X.translate(-cam, camY);
+  // 赛道填充（左侧延伸到屏幕外，含起点前的平直引道，避免摩托后方空白）
+  const x0=cam-SEG, x1=cam+W+SEG;
+  // 路基：先铺一层不透明深色，让赛道线下方有"实体路面"而非悬空的线
+  X.beginPath(); X.moveTo(x0,H-camY+80);
+  for(let wx=x0;wx<=x1;wx+=4) X.lineTo(wx,groundY(wx));
+  X.lineTo(x1,H-camY+80); X.closePath();
+  const rb=X.createLinearGradient(0,H*0.25,0,H);
+  rb.addColorStop(0,'rgb(32,35,41)'); rb.addColorStop(.5,'rgb(24,27,33)'); rb.addColorStop(1,'rgb(16,18,22)');
+  X.fillStyle=rb; X.fill();
+  // 紧贴赛道线下方的实色路肩带，强化"这是一条路"的实体感
+  X.save();
+  X.beginPath();
+  for(let wx=x0;wx<=x1;wx+=4){ const y=groundY(wx); wx===x0?X.moveTo(wx,y):X.lineTo(wx,y); }
+  for(let wx=x1;wx>=x0;wx-=4){ X.lineTo(wx,groundY(wx)+14); }
+  X.closePath();
+  X.fillStyle='rgb(40,44,52)'; X.fill();
+  X.restore();
+  // 再叠关卡主题色光晕（保留原氛围）
+  X.beginPath(); X.moveTo(x0,H-camY+80);
+  for(let wx=x0;wx<=x1;wx+=4) X.lineTo(wx,groundY(wx));
+  X.lineTo(x1,H-camY+80); X.closePath();
+  const fg=X.createLinearGradient(0,H*0.25,0,H);
+  fg.addColorStop(0,t.color+'14'); fg.addColorStop(1,t.color+'00');
+  X.fillStyle=fg; X.fill();
+  // 曲线
+  X.beginPath();
+  for(let wx=x0;wx<=x1;wx+=4){ const y=groundY(wx); wx===x0?X.moveTo(wx,y):X.lineTo(wx,y); }
+  // 先在赛道线正下方压一道暗色描边，让亮线"嵌"在地面边缘而非悬浮
+  X.save(); X.translate(0,2.5); X.lineWidth=4; X.strokeStyle='rgba(4,12,22,.85)'; X.stroke(); X.restore();
+  // 赛道主亮线：按 K 线涨跌分段着色（涨=红、跌=绿，骑在 K 线上一眼可见）——
+  // 逐 terrain 段绘制：每段取相邻两点的 price 比较定涨跌色
+  {
+    const UP='#e06d6d', DOWN='#52b788', FLAT='#9aa3b0';   // 涨=雾红 / 跌=雾绿 / 持平=中性灰
+    const i0=Math.max(1,Math.floor(x0/curSeg)), i1=Math.min(terrain.length-1,Math.ceil(x1/curSeg));
+    X.lineWidth=3.5; X.lineCap='round';
+    for(let i=i0;i<=i1;i++){
+      const a=terrain[i-1], b=terrain[i];
+      if(!a||!b) continue;
+      const dp=b.price-a.price;
+      const col = Math.abs(dp)<1e-9 ? FLAT : (dp>0 ? UP : DOWN);
+      X.strokeStyle=col;
+      // 段内用 groundY 平滑采样，和地形曲线完全贴合
+      X.beginPath();
+      const sx=Math.max(x0,a.x), ex=Math.min(x1,b.x);
+      let first=true;
+      for(let wx=sx; wx<=ex; wx+=4){ const y=groundY(wx); first?(X.moveTo(wx,y),first=false):X.lineTo(wx,y); }
+      X.lineTo(ex,groundY(ex));
+      X.stroke();
+    }
+    X.shadowBlur=0; X.lineCap='butt';
+  }
+
+  // v1.0.60: K 线 ◆BUFF 高亮蜡烛柱已移除 —— buffNodes 不再在对战里触发抽卡,
+  // 改为休整室复盘用(recordBuffSnapshots 默默记录持仓快照,openIntermission 读取)
+
+  // 距离里程碑标记（小竖线，速度参照物）
+  X.strokeStyle='rgba(120,150,210,.25)'; X.lineWidth=1;
+  for(let mx=Math.max(300,Math.ceil(x0/300)*300); mx<x1; mx+=300){ const my=groundY(mx); X.beginPath(); X.moveTo(mx,my-4); X.lineTo(mx,my+4); X.stroke(); }
+
+  // 终点旗
+  const fx=trackLen, fy=groundY(fx);
+  X.fillStyle='#fff'; X.fillRect(fx,fy-80,3,80);
+  for(let r=0;r<5;r++)for(let col=0;col<3;col++){ X.fillStyle=((r+col)%2)?'#fff':'#111'; X.fillRect(fx+3+col*10,fy-80+r*10,10,10); }
+
+  // 起点发车线（世界 x=0，呼应终点黑白格；让起点前的引道有"待发区"语义）
+  if(x0 < 40){
+    const sy=groundY(0);
+    X.fillStyle='#fff'; X.fillRect(-3,sy-72,3,72);
+    for(let r=0;r<5;r++)for(let col=0;col<2;col++){ X.fillStyle=((r+col)%2)?'#fff':'#111'; X.fillRect(-3-(col+1)*10,sy-72+r*10,10,10); }
+    // 路面起跑横纹
+    X.fillStyle='rgba(255,255,255,.5)';
+    for(let i=0;i<5;i++){ const gx=-44+i*10; X.fillRect(gx,groundY(gx)-1,7,3); }
+    // START 标牌
+    X.font='900 12px system-ui,sans-serif'; X.textAlign='center';
+    X.fillStyle='rgba(10,30,50,.8)'; X.fillRect(-32,sy-90,58,16);
+    X.strokeStyle='rgba(255,255,255,.14)'; X.lineWidth=1; X.strokeRect(-32,sy-90,58,16);
+    X.fillStyle='#3ddc97'; X.fillText('START',-3,sy-78);
+    X.textAlign='start';
+  }
+
+  // 关键事件里程碑旗（真实行情节点：2008/2020/2023 等）
+  for(const e of trackEvents){
+    if(e.x<x0-40 || e.x>x1+40) continue;
+    const ey=groundY(e.x);
+    // 旗杆
+    X.strokeStyle='#9aa3b0'; X.lineWidth=1.5;
+    X.beginPath(); X.moveTo(e.x,ey); X.lineTo(e.x,ey-64); X.stroke();
+    // 旗面（小三角）
+    X.fillStyle='#3ddc97'; X.beginPath(); X.moveTo(e.x,ey-64); X.lineTo(e.x+26,ey-57); X.lineTo(e.x,ey-50); X.closePath(); X.fill();
+    // 标签
+    X.font='700 11px system-ui,sans-serif'; X.textAlign='left';
+    const tw=X.measureText(e.label).width;
+    X.fillStyle='rgba(22,25,31,.92)'; X.fillRect(e.x+3, ey-49, tw+10, 16);
+    X.strokeStyle='rgba(255,255,255,.14)'; X.lineWidth=1; X.strokeRect(e.x+3, ey-49, tw+10, 16);
+    X.fillStyle='#3ddc97'; X.fillText(e.label, e.x+8, ey-37);
+    X.textAlign='start';
+  }
+
+  // ===== 粒子：按 kind 区分质感 —— 金币(带高光小方片) / 碎片(锐角三角,爆仓) / 默认(圆点) =====
+  for(const p of particles){
+    const a=p.life*0.8;
+    if(p.kind==='coin'){
+      // 翻滚金币：宽度随 life 做 cos 摆动模拟翻转
+      const w=(2.5+p.life*2)*Math.abs(Math.cos(p.life*9+p.seed));
+      X.fillStyle='rgba(232,196,104,'+a+')'; X.fillRect(p.x-w,p.y-3,w*2,6);
+      X.fillStyle='rgba(255,255,255,'+(a*0.7)+')'; X.fillRect(p.x-w*0.4,p.y-2,w*0.5,2);
+    } else if(p.kind==='shard'){
+      // 爆裂碎片：旋转的锐角三角
+      X.save(); X.translate(p.x,p.y); X.rotate((p.seed+p.life*6));
+      X.fillStyle=p.col+a+')'; X.beginPath();
+      const s=2+p.life*3; X.moveTo(0,-s); X.lineTo(s*0.8,s*0.6); X.lineTo(-s*0.8,s*0.6); X.closePath(); X.fill();
+      X.restore();
+    } else {
+      X.fillStyle=p.col+(p.life*0.7)+')'; X.beginPath(); X.arc(p.x,p.y,2.5*p.life+0.5,0,7); X.fill();
+    }
+  }
+
+  // ===== K线捡钱机会：散落金币 =====
+  const _tnow=performance.now()*0.006;
+  for(const c of coins){
+    if(c.got) continue;
+    if(c.x<x0-30 || c.x>x1+30) continue;
+    const bob=Math.sin(_tnow+c.ph)*3;          // 上下浮动
+    const cy=c.y+bob;
+    const r=c.high?9:7;
+    // 高空币：外圈光环 + "跳"提示
+    if(c.high){
+      X.strokeStyle='rgba(61,220,151,.3)'; X.lineWidth=1.5;
+      X.beginPath(); X.arc(c.x,cy,r+7,0,7); X.stroke();
+      // 从地面到币的虚线引导，提示"在这跳"
+      X.strokeStyle='rgba(61,220,151,.15)'; X.lineWidth=1; X.setLineDash([3,5]);
+      X.beginPath(); X.moveTo(c.x,groundY(c.x)-6); X.lineTo(c.x,cy+r); X.stroke(); X.setLineDash([]);
+    }
+    // 币体（金色，带高光）
+    X.fillStyle='#e8c468'; X.beginPath(); X.arc(c.x,cy,r,0,7); X.fill();
+    X.fillStyle='rgba(255,255,255,.85)'; X.beginPath(); X.arc(c.x-r*0.3,cy-r*0.3,r*0.32,0,7); X.fill();
+    // 币面符号
+    X.fillStyle='#7a5200'; X.font='900 '+(c.high?11:9)+'px system-ui,sans-serif'; X.textAlign='center'; X.textBaseline='middle';
+    X.fillText('$',c.x,cy+0.5); X.textBaseline='alphabetic'; X.textAlign='start';
+  }
+
+  drawBike();
+  X.restore();
+
+  // 速度线（屏幕空间，高速时出现）
+  if(Math.abs(bike.vx)>19){
+    const a=(Math.abs(bike.vx)-19)/8*0.22;
+    X.strokeStyle='rgba(180,210,255,'+a+')'; X.lineWidth=2;
+    for(let i=0;i<6;i++){ const yy=H*(0.15+Math.random()*0.7); const len=40+Math.random()*60;
+      X.beginPath(); X.moveTo(W-Math.random()*W*0.3, yy); X.lineTo(W-Math.random()*W*0.3-len, yy); X.stroke(); }
+  }
+  // ===== 飞钱（屏幕坐标，二次贝塞尔弧线汇向左上角资金HUD）=====
+  for(const m of flyMoney){
+    if(m.delay>0) continue;
+    const t=Math.min(1,m.t), u=1-t;
+    // 二次贝塞尔：起点→控制点(上抛)→终点(HUD)
+    const x=u*u*m.sx + 2*u*t*m.cx + t*t*m.tx;
+    const y=u*u*m.sy + 2*u*t*m.cy + t*t*m.ty;
+    const fade = t<0.85 ? 1 : (1-(t-0.85)/0.15);   // 临近 HUD 渐隐
+    const r = m.big?7:5.5;
+    // 拖尾
+    const pt=Math.max(0,t-0.06), pu=1-pt;
+    const px=pu*pu*m.sx+2*pu*pt*m.cx+pt*pt*m.tx, py=pu*pu*m.sy+2*pu*pt*m.cy+pt*pt*m.ty;
+    X.strokeStyle='rgba(255,222,120,'+(0.5*fade)+')'; X.lineWidth=r*0.7; X.lineCap='round';
+    X.beginPath(); X.moveTo(px,py); X.lineTo(x,y); X.stroke(); X.lineCap='butt';
+    // 币体（金色光晕）
+    X.fillStyle='rgba(232,196,104,'+fade+')'; X.beginPath(); X.arc(x,y,r,0,7); X.fill();
+    X.fillStyle='rgba(255,255,255,'+(0.85*fade)+')'; X.beginPath(); X.arc(x-r*0.3,y-r*0.3,r*0.32,0,7); X.fill();
+    X.fillStyle='rgba(122,82,0,'+fade+')'; X.font='900 '+(m.big?10:8)+'px system-ui,sans-serif'; X.textAlign='center'; X.textBaseline='middle';
+    X.fillText('$',x,y+0.5); X.textBaseline='alphabetic'; X.textAlign='start';
+  }
+  // ===== 爆仓红屏闪（栽倒期间整屏泛红，前段最强，渐隐）=====
+  if(wipeout.active){
+    const k=Math.max(0, 1-wipeout.t/wipeout.dur);
+    const a=0.42*k*k;
+    const rg=X.createRadialGradient(W*0.5,H*0.5,H*0.2, W*0.5,H*0.5,H*0.8);
+    rg.addColorStop(0,'rgba(224,109,109,'+(a*0.3)+')');
+    rg.addColorStop(1,'rgba(200,80,80,'+a+')');
+    X.fillStyle=rg; X.fillRect(0,0,W,H);
+  }
+  X.restore();
+}
+function drawParallax(t){
+  X.save();
+  // ===== 3 层金融城市天际线视差：远景塔楼剪影 → 中景密集楼群 → 近景高楼，制造纵深，消除"背后空" =====
+  // 每层用确定性伪随机(基于世界格索引 i)生成楼宇高度/宽度，保证滚动连续不跳变
+  const rand=(n)=>{ const s=Math.sin(n*127.1+layerSeed*311.7)*43758.5; return s-Math.floor(s); };
+  let layerSeed=0;
+  const LAYERS=[
+    { par:0.08, baseY:H*0.46, col:'rgb(36,43,56)', span:300, minH:30, maxH:90, win:false }, // 远景：矮、暗、稀
+    { par:0.16, baseY:H*0.55, col:'rgb(50,59,76)', span:160, minH:50, maxH:150, win:true },  // 中景：密集塔楼+零星窗灯
+    { par:0.28, baseY:H*0.64, col:'rgb(64,75,96)', span:110, minH:70, maxH:200, win:true },  // 近景：高、深、窗灯多
+  ];
+  for(let L=0;L<LAYERS.length;L++){
+    const cfg=LAYERS[L]; layerSeed=L+1;
+    const span=cfg.span, scroll=cam*cfg.par;
+    const i0=Math.floor((scroll-span)/span), i1=Math.ceil((scroll+W+span)/span);
+    for(let i=i0;i<=i1;i++){
+      const bx=i*span-scroll;
+      // 每格 1-2 栋楼，宽高由格索引决定
+      const nBld = rand(i)>0.55 ? 2 : 1;
+      for(let b=0;b<nBld;b++){
+        const r1=rand(i*7+b*13), r2=rand(i*3+b*29);
+        const bw=span*(0.34+r1*0.30);
+        const bxx=bx + b*span*0.5 + r2*span*0.12;
+        const bh=cfg.minH + r1*(cfg.maxH-cfg.minH);
+        const byTop=cfg.baseY - bh;
+        // 楼体剪影
+        X.fillStyle=cfg.col; X.fillRect(bxx, byTop, bw, H-byTop);
+        // 楼顶细分隔（让轮廓不死板）
+        if(r2>0.6){ X.fillRect(bxx+bw*0.3, byTop-6, bw*0.18, 6); }
+        // 窗灯：稀疏青绿点（金融大楼夜晚的零星亮灯，呼应强调色，不刺眼）
+        if(cfg.win){
+          const cols=Math.max(1,Math.floor(bw/14)), rows=Math.max(2,Math.floor(bh/18));
+          for(let wc=0;wc<cols;wc++) for(let wr=0;wr<rows;wr++){
+            if(rand(i*97+b*51+wc*7+wr*3) > 0.86){    // 仅 ~14% 窗亮
+              const wx=bxx+5+wc*14, wy=byTop+8+wr*18;
+              if(wx<bxx+bw-3){ X.fillStyle='rgba(61,220,151,'+(0.34+L*0.12)+')'; X.fillRect(wx,wy,3,4); }
+            }
+          }
+        }
+      }
+    }
+  }
+  // ===== 横向数据流光点（极淡，随相机快速滚动，像盘口数据流过，加电子/金融氛围）=====
+  X.fillStyle='rgba(120,150,210,.06)';
+  const dScroll=(cam*0.5)%40;
+  for(let i=0;i<14;i++){
+    const dx=((i*97)% (W+40)) - dScroll*((i%3)+1);
+    const dy=H*(0.20+ (i*0.61%1)*0.30);
+    const xx=((dx%(W+40))+(W+40))%(W+40)-20;
+    X.fillRect(xx,dy,12,1);
+  }
+  X.restore();
+}
+
+function drawBike(){
+  // —— 3B 速度线：地面高速巡航时，车后方拖几道克制的青绿水平线（不发光，低透明，纯速度暗示）——
+  if(bike.onGround && !wipeout.active && bike.vx>CRUISE_V*0.9){
+    const sp=Math.min(1,(bike.vx-CRUISE_V*0.9)/(MAXV-CRUISE_V*0.9));   // 0~1 速度强度
+    X.save(); X.translate(bike.x,bike.y);
+    X.strokeStyle='rgba(61,220,151,'+(0.10+sp*0.22).toFixed(3)+')'; X.lineWidth=1.4; X.lineCap='round';
+    const lines=[[-34,-14,22],[-40,2,30],[-34,16,22]];
+    for(const [lx,ly,len] of lines){ const L=len*(0.5+sp*0.9); X.beginPath(); X.moveTo(lx-L,ly); X.lineTo(lx,ly); X.stroke(); }
+    X.lineCap='butt'; X.restore();
+  }
+  X.save();
+  X.translate(bike.x,bike.y);
+  // —— 3A 悬挂压缩：落地瞬间车身竖向压扁+轻微下沉，随 squash 衰减弹回（弹性挤压感）——
+  if(bike.squash>0){ const s=bike.squash; X.scale(1+0.10*s, 1-0.16*s); X.translate(0, 7*s); }
+  X.rotate(bike.ang);
+  const col=TRACKS[trackKey].color;
+  // 空中尾迹光
+  if(!bike.onGround){ X.fillStyle=col+'22'; X.beginPath(); X.ellipse(-6,2,30,16,0,0,7); X.fill(); }
+  // ===== 极简低趴超跑机车（实体整流罩车壳 + 双前叉 + 动态骑手；车身点缀统一青绿 #3ddc97）=====
+  const mag='#3ddc97';                                  // 车身点缀统一强调青绿（变量名 mag 为历史遗留，值已是青绿）
+  const RW=15, FW=15, rearX=-25, frontX=27, axleY=12;   // 拉长轴距、前后轮等大
+  const forkTopX=frontX-7, forkTopY=-13;                // 车头/三角台位置
+  // —— 车头霓虹光锥（仅地面，向前射）——
+  // (极简：去车头霓虹光锥)
+  // —— 双前叉：两根减震叉管从三角台斜插到前轮轴，明确机械感 ——
+  X.strokeStyle='#aebfe0'; X.lineCap='round';
+  X.lineWidth=5; X.beginPath(); X.moveTo(forkTopX,forkTopY); X.lineTo(frontX,axleY); X.stroke();        // 外管（粗）
+  X.strokeStyle='#eef4ff'; X.lineWidth=2; X.beginPath(); X.moveTo(forkTopX+2,forkTopY+1); X.lineTo(frontX+2,axleY); X.stroke(); // 内管高光
+  X.lineCap='butt';
+  // —— 后摆臂：后轮轴连到车体下缘 ——
+  X.strokeStyle='#9fb0d2'; X.lineWidth=5; X.lineCap='round';
+  X.beginPath(); X.moveTo(rearX,axleY); X.lineTo(-6,-1); X.stroke(); X.lineCap='butt';
+  // —— 主车壳：低趴整流罩，实体渐变填充（油箱隆起→座垫凹陷→上翘短尾）——
+  const body=X.createLinearGradient(0,-20,0,9);
+  body.addColorStop(0,'#46557a'); body.addColorStop(.45,'#202c4a'); body.addColorStop(1,'#0a1124');
+  X.fillStyle=body;
+  X.beginPath();
+  X.moveTo(rearX+3,2);                       // 尾段底（接后轮上方）
+  X.lineTo(rearX-1,-13);                      // 上翘短尾尖
+  X.quadraticCurveTo(-14,-15, -9,-13);        // 尾整流罩圆背
+  X.quadraticCurveTo(-4,-19, 4,-19);          // 座垫后凸（骑手坐处）
+  X.quadraticCurveTo(11,-19, 15,-16);         // 油箱顶圆润隆起
+  X.lineTo(forkTopX-1,-15);                    // 接车头三角台
+  X.quadraticCurveTo(frontX+6,-13, frontX+11,-4); // 前整流罩头锥（尖鼻）
+  X.lineTo(frontX+8,2);                        // 整流罩下缘
+  X.quadraticCurveTo(frontX-4,5, 10,4);        // 腹部底盘
+  X.lineTo(-2,3); X.closePath(); X.fill();
+  X.strokeStyle=col; X.lineWidth=2.2; X.stroke();
+  // 整流罩棱线（青）+ 油箱/侧裙撞色线（品红）——加强体量与赛博感
+  X.strokeStyle=col+'cc'; X.lineWidth=1.6;
+  X.beginPath(); X.moveTo(-6,-12); X.lineTo(15,-13); X.lineTo(frontX+6,-7); X.stroke();   // 上棱
+  X.strokeStyle=mag; X.lineWidth=1.8;
+  X.beginPath(); X.moveTo(-2,-4); X.lineTo(frontX+4,-2); X.stroke();                       // 侧裙点缀
+  // 前大灯（品红一抹）
+  X.fillStyle=mag;
+  X.beginPath(); X.moveTo(frontX+6,-5); X.lineTo(frontX+11,-3); X.lineTo(frontX+7,0); X.closePath(); X.fill();
+  // 车把（从三角台伸出短把 + 端头）
+  X.strokeStyle=col; X.lineWidth=3.5; X.lineCap='round';
+  X.beginPath(); X.moveTo(forkTopX,forkTopY-1); X.lineTo(forkTopX+9,forkTopY-6); X.stroke(); X.lineCap='butt';
+  // —— 趴伏骑手：臀坐座垫，背前倾压向车把，手臂前伸，膝盖收拢上提踩脚踏（赛车蜷腿，胯部闭合不张开）——
+  // 腿（先画，被躯干压住）：大腿从臀往前上方收到高膝（贴油箱），小腿垂直下踩脚踏——膝上提避免胯部敞开
+  X.strokeStyle='#c9d6f5'; X.lineWidth=5; X.lineCap='round';
+  X.lineJoin='round';
+  X.beginPath();
+  X.moveTo(-5,-15);    // 髋（臀部，坐实座垫）
+  X.lineTo(8,-16);     // 膝（往前上方收高，贴近油箱——大腿近水平略上抬，不下张）
+  X.lineTo(7,2);       // 踝（小腿近乎垂直往下踩脚踏，收拢）
+  X.stroke();
+  // 脚踏 + 脚掌
+  X.fillStyle='#c9d6f5'; X.beginPath(); X.arc(7,2,2.2,0,7); X.fill();
+  X.strokeStyle='#c9d6f5'; X.lineWidth=3; X.beginPath(); X.moveTo(5,3); X.lineTo(11,3); X.stroke();
+  X.lineCap='butt';
+  // 躯干（实体剪影，前倾但腰胯收紧——臀坐实不抬高，下缘贴座垫消除胯部张开感）
+  X.fillStyle='#eaf1ff';
+  X.beginPath();
+  X.moveTo(-5,-16);             // 臀部坐座垫（贴实）
+  X.lineTo(-2,-27);             // 背脊前倾
+  X.lineTo(7,-31);             // 肩
+  X.lineTo(13,-28);            // 前肩/接手臂
+  X.lineTo(8,-18);             // 前腹（下探接膝，腰胯收拢）
+  X.lineTo(0,-15);             // 腰（收紧贴腿根）
+  X.closePath(); X.fill();
+  // 手臂（肩→车把，明确前伸）
+  X.strokeStyle='#eaf1ff'; X.lineWidth=4; X.lineCap='round';
+  X.beginPath(); X.moveTo(9,-29); X.lineTo(forkTopX+6,forkTopY-5); X.stroke(); X.lineCap='butt';
+  // 头盔（探在车把上方）+ 尖尾 + 面镜
+  X.fillStyle='#eef4ff'; X.beginPath(); X.arc(13,-33,5.4,0,7); X.fill();
+  X.fillStyle='#eef4ff'; X.beginPath(); X.moveTo(9,-35); X.lineTo(3,-31); X.lineTo(10,-30); X.closePath(); X.fill();
+  X.fillStyle=mag; X.beginPath(); X.arc(15,-33,2.4,0,7); X.fill(); // 面镜点缀
+  // —— 车轮：粗胎 + 青色霓虹辋圈 + 辐条 + 品红轮毂 ——
+  const wheels=[[rearX,RW],[frontX,FW]];
+  for(const [wx,r] of wheels){
+    X.save(); X.translate(wx,axleY); X.rotate(bike.wheel);
+    X.strokeStyle='#0f1118'; X.lineWidth=r*0.5; X.beginPath(); X.arc(0,0,r,0,7); X.stroke();         // 粗胎
+    X.strokeStyle=col; X.lineWidth=2.6; X.beginPath(); X.arc(0,0,r*0.7,0,7); X.stroke(); // 辋圈
+    X.strokeStyle=col+'88'; X.lineWidth=1.5;
+    for(let s=0;s<3;s++){ const a=s*Math.PI/3; X.beginPath(); X.moveTo(-Math.cos(a)*r*0.7,-Math.sin(a)*r*0.7); X.lineTo(Math.cos(a)*r*0.7,Math.sin(a)*r*0.7); X.stroke(); }
+    X.fillStyle=mag; X.beginPath(); X.arc(0,0,2.6,0,7); X.fill(); // 轮毂点缀
+    X.restore();
+  }
+  X.restore();
+
+  // ===== 空中视觉反馈：翻转进度环 + 落地姿态指示 =====（不随车旋转，画在世界坐标）
+  if(!bike.onGround && airTime>0.05){
+    const R=34;
+    // 1) 翻转进度环：按本圈累计角度 flipAcc 填充，转满一圈高亮闪烁
+    const prog=Math.min(1, Math.abs(bike.flipAcc)/(Math.PI*2));
+    const dir=bike.flipAcc>=0?1:-1;
+    X.save(); X.translate(bike.x,bike.y);
+    // 底环（暗）
+    X.strokeStyle='rgba(255,255,255,.14)'; X.lineWidth=4;
+    X.beginPath(); X.arc(0,0,R,0,Math.PI*2); X.stroke();
+    // 进度弧（青→满圈变金）
+    const ringCol = prog>=1 ? '#ffd24a' : '#3fe0ff';
+    X.strokeStyle=ringCol; X.lineWidth=4;
+    X.beginPath(); X.arc(0,0,R,-Math.PI/2, -Math.PI/2 + dir*prog*Math.PI*2, dir<0); X.stroke();
+    X.shadowBlur=0;
+    X.restore();
+    // 2) 落地姿态指示：临近地面时，根据落地角是否安全显示绿/红弧
+    const gy2=groundY(bike.x), groundLevel2=gy2-24;
+    const distToGround = groundLevel2 - bike.y;     // 距落地的竖直距离
+    if(bike.vy>0 && distToGround>0 && distToGround<160){
+      const ga2=groundAngle(bike.x);
+      let aN=((bike.ang-ga2)%(Math.PI*2)); if(aN>Math.PI)aN-=Math.PI*2; if(aN<-Math.PI)aN+=Math.PI*2;
+      const volF=1.15-(TRACKS[trackKey].vol-1)*0.16;
+      const deadA=CONFIG.LAND_DEAD_ANG*Math.max(0.6,volF);
+      const safe=Math.abs(aN)<=deadA;
+      const perfectZone=Math.abs(aN)<CONFIG.PERFECT_ANG;
+      const indCol = perfectZone ? '#3ddc97' : (safe ? '#52b788' : '#e06d6d');
+      const near = 1 - distToGround/160;            // 越近越明显
+      X.save(); X.translate(bike.x,bike.y+R+14);
+      X.globalAlpha=0.45+near*0.55;
+      // 一个朝下的小三角 + 文字提示
+      X.fillStyle=indCol;
+      X.beginPath(); X.moveTo(0,8); X.lineTo(-7,-4); X.lineTo(7,-4); X.closePath(); X.fill();
+      X.globalAlpha=1;
+      X.restore();
+    }
+  }
+}
+
+let raf;
+function loop(){ step(); draw(); raf=requestAnimationFrame(loop); }
+
+function startGame(){
+  initAudio(); if(AC&&AC.state==='suspended') AC.resume();
+  if(bgmEnabled) startBGM();
+  resize(); buildTerrain(trackKey); reset();
+  markPlayed(trackKey);   // 收录进"我的行情库"
+  document.body.classList.add('playing');
+  document.getElementById('homeBtn').classList.add('hide');     // 对局中不显示返回
+  document.getElementById('startOv').classList.add('hide');
+  document.getElementById('endOv').classList.add('hide');
+  document.getElementById('hud').classList.remove('hide');
+  document.getElementById('priceBanner').classList.remove('hide');
+  document.getElementById('ctrl').classList.remove('hide');
+  document.getElementById('helpBtn').classList.remove('hide');   // 对局中右上角显示❓帮助
+  // 首次进入对局自动弹一次玩法引导（之后靠右上❓随时再看）
+  if(!localStorage.getItem('sr_guide_seen')){ openGuide(); localStorage.setItem('sr_guide_seen','1'); }
+  document.getElementById('tkSym').textContent=TRACKS[trackKey].sym;
+  cancelAnimationFrame(raf); loop();
+}
+function endGame(win){
+  state='end';
+  if(position) closePosition(false, true, win?'end_win':'end_loss');   // 局末强制平仓:非 silent + force 跳过防抖 + reason 走终点专属飘字
+  if(engineGain) engineGain.gain.value=0;
+  const dur=((performance.now()-startT)/1000).toFixed(1);
+  const total=Math.floor(score);
+  const isNewRecord = win && total>best && best>0;   // 破纪录（best>0 排除首次通关无旧纪录的情况）
+  if(total>best){ best=total; localStorage.setItem('stonk_best_'+trackKey, best); }
+  // ===== v1.0.58: 赛季存档更新 —— 冲线滚存,破产清空 =====
+  // v1.0.59: 一场赛程 = MATCH_LEN 回合 + 跨回合 buff 累积 build + 终局大屏
+  // 先读旧存档(如无则视为第 0 局刚结束) → 计算本局 delta → 决定新状态
+  const seasonBefore = getSeason() || { cash: CONFIG.START_CASH, round: 0, peak: CONFIG.START_CASH, history: [], buffs: [], matchLen: CONFIG.MATCH_LEN, matchDone: false };
+  const startCash = seasonBefore.cash;   // 本局的起步本金
+  const delta = total - startCash;       // 本局盈亏(可正可负)
+  let seasonInfo = null;                 // 传给结算面板渲染用
+  if(win && !bankrupt){
+    // 冲线成功:cash 更新为本局结算值,round++,peak 取 max
+    const nextRound = seasonBefore.round + 1;
+    const matchLen = seasonBefore.matchLen || CONFIG.MATCH_LEN;
+    const matchDone = nextRound >= matchLen;   // v1.0.59: 第 8 回合冲线 = 赛程完成
+    const newSeason = {
+      cash: total,
+      round: nextRound,
+      peak: Math.max(seasonBefore.peak, total),
+      history: (seasonBefore.history || []).concat([{ key: trackKey, delta, end: total, buffs: activeBuffs.slice() }]),
+      buffs: activeBuffs.slice(),   // v1.0.59: 本局抽到的 buff 存进赛程 build,下一回合继承
+      matchLen,
+      matchDone
+    };
+    saveSeason(newSeason);
+    seasonInfo = { round: newSeason.round, peak: newSeason.peak, cash: newSeason.cash, delta, startCash, matchLen, matchDone, history: newSeason.history, buffs: newSeason.buffs };
+  } else if(bankrupt){
+    // 破产:清空存档,把最终 seasonInfo 传给面板显示"赛季结束"
+    seasonInfo = { round: seasonBefore.round + 1, peak: seasonBefore.peak, cash: 0, delta, startCash, seasonEnd: true, history: seasonBefore.history || [], matchLen: seasonBefore.matchLen || CONFIG.MATCH_LEN, buffs: activeBuffs.slice() };
+    clearSeason();
+  } else {
+    // 未冲线但也没破产(理论上不会走这里,保底):按结束当前局处理,不推进赛季
+    seasonInfo = { round: seasonBefore.round + 1, peak: seasonBefore.peak, cash: startCash, delta:0, startCash, matchLen: seasonBefore.matchLen || CONFIG.MATCH_LEN };
+  }
+  window._lastSeasonInfo = seasonInfo;   // 供 UI 渲染读取
+
+  // 评星（仅作荣誉记录，不再解锁）
+  const stars=calcRating(win, flips, perfectLands, +dur);
+  setStars(trackKey, stars);
+  let unlockedMsg='';
+  // 记录本局战绩供分享卡使用
+  lastRun={ key:trackKey, win, total, dur, flips, perfectLands, stars,
+            distScore:Math.floor(distScore), airScore:Math.floor(airScore), trickScore:Math.floor(trickScore),
+            pnl:Math.round(pnlScore), posCount, posWins };
+
+  const progress = Math.min(1, bike.x / trackLen);
+  const taunt = pickTaunt(win, flips, progress);
+  if(bankrupt){
+    document.getElementById('endTitle').textContent = pickBankruptTaunt();
+  } else {
+    document.getElementById('endTitle').textContent = taunt;
+  }
+  // 失败态（破产/翻车未冲线）：整页染失败重量感（红标题/红分数/顶部红雾）；冲线则恢复中性
+  const endOvEl=document.getElementById('endOv');
+  if(!win){ endOvEl.classList.add('lost'); } else { endOvEl.classList.remove('lost'); }
+  // 破产：分数下方点出\"血本无归\"的本金对比，强化\"全没了\"的挫败
+  const lossEl=document.getElementById('endLoss');
+  if(bankrupt){
+    lossEl.textContent = `$${CONFIG.START_CASH.toLocaleString()} 本金 → $0　血本无归`;
+    lossEl.classList.remove('hide');
+  } else {
+    lossEl.classList.add('hide');
+  }
+  // 星级显示
+  document.getElementById('endStars').innerHTML=
+    [0,1,2].map(i=>`<span class="${i<stars?'on':''}">★</span>`).join('');
+  // 翻车上下文：在这支股票的第几天/什么价格/涨跌幅处栽的
+  let crashLine='';
+  if(!win && crashCtx){
+    const t=TRACKS[trackKey];
+    const chg=startPrice? (crashCtx.price-startPrice)/startPrice*100 : 0;
+    const pStr = crashCtx.price<1 ? crashCtx.price.toFixed(4) : crashCtx.price.toLocaleString();
+    const whenStr = crashCtx.date ? crashCtx.date : ('第'+Math.round(bike.x/curSeg+1)+'段');
+    crashLine = ` · 栽在 ${whenStr} ${t.unit}${pStr}（${chg>=0?'↑':'↓'}${Math.abs(chg).toFixed(1)}%）`;
+  }
+  if(win){
+    const parts=[`用时 ${dur}s`];
+    if(flips>0)        parts.push(`空翻 ${flips}`);
+    if(perfectLands>0) parts.push(`完美落地 ${perfectLands}`);
+    if(posCount>0)     parts.push(`交易${posCount}笔 盈亏${pnlScore>=0?'+':''}${Math.round(pnlScore)}`);
+    document.getElementById('endSub').textContent=parts.join(' · ');
+  } else if(bankrupt){
+    document.getElementById('endSub').textContent=`资金归零 · 撑了 ${dur}s · 跑了 ${Math.round(progress*100)}% · 重仓押反了一把全没了${crashLine}`;
+  } else {
+    document.getElementById('endSub').textContent=`撑了 ${dur}s · 跑了 ${Math.round(progress*100)}%${crashLine}`;
+  }
+  document.getElementById('endScore').innerHTML=`$${total.toLocaleString()}`;
+  // 分项数据精简掉（属开发者数据，玩家只看总分+星级）——保留在分享卡里
+  document.getElementById('endBreak').textContent='';
+  // 最高分行：破纪录时高亮"新纪录"，否则显示历史最高（避免与本局分数重复）
+  const bestEl=document.getElementById('endBest');
+  if(isNewRecord){ bestEl.textContent='新纪录！'; }
+  else if(win && total>=best){ bestEl.textContent=''; }   // 首次通关本局即最高，不重复显示
+  else { bestEl.textContent=`最高 $${best.toLocaleString()}`; }
+  const unlockEl=document.getElementById('endUnlock');
+  if(unlockedMsg){ unlockEl.textContent=unlockedMsg; unlockEl.classList.remove('hide'); sndWin(); }
+  else unlockEl.classList.add('hide');
+
+  // ===== v1.0.58: 渲染赛季徽章 + 双按钮切换 =====
+  // v1.0.59: 赛程回合制 —— K/N 回合显示 + 三态按钮(下一回合 / 赛程结算 / 再战一轮)
+  const seasonEl = document.getElementById('endSeason');
+  const cashOutBtn = document.getElementById('cashOutBtn');
+  const retryBtn = document.getElementById('retryBtn');
+  const _matchLen = (seasonInfo && seasonInfo.matchLen) || CONFIG.MATCH_LEN;
+  const _matchDone = !!(seasonInfo && seasonInfo.matchDone);
+  if(seasonInfo && seasonInfo.round >= 1){
+    // 累计相对首局 START_CASH 的成长率(不是相对本局 startCash)
+    const overall = seasonInfo.cash - CONFIG.START_CASH;
+    const overallPct = (overall/CONFIG.START_CASH*100).toFixed(0);
+    const grow = overall>=0 ? `<span class="esGrow up">+${overallPct}%</span>` : `<span class="esGrow down">${overallPct}%</span>`;
+    if(seasonInfo.seasonEnd){
+      // 本轮结束(破产):红色徽章,显示战绩总结
+      seasonEl.innerHTML = `<span class="esEnd">赛程终止</span> · 共跑 <span class="esRound">${seasonInfo.round}/${_matchLen}</span> 回合 · 峰值 <span class="esPeak">$${seasonInfo.peak.toLocaleString()}</span>`;
+    } else if(_matchDone){
+      // v1.0.59: 完赛 —— 金色徽章,提示赛程达成
+      seasonEl.innerHTML = `<span class="esDone">赛程达成</span> · <span class="esRound">${_matchLen}/${_matchLen}</span> 回合 · 峰值 <span class="esPeak">$${seasonInfo.peak.toLocaleString()}</span> · 累计 ${grow}`;
+    } else {
+      // 中盘冲线:绿色徽章,显示当前回合数/峰值/累计涨跌
+      seasonEl.innerHTML = `第 <span class="esRound">${seasonInfo.round}/${_matchLen}</span> 回合 · 峰值 <span class="esPeak">$${seasonInfo.peak.toLocaleString()}</span> · 累计 ${grow}`;
+    }
+    seasonEl.classList.add('show'); seasonEl.classList.remove('hide');
+  } else {
+    seasonEl.classList.remove('show'); seasonEl.classList.add('hide');
+  }
+  // v1.0.59: 按钮三态
+  // - 中盘冲线 (win && round >= 3 && round < matchLen): 主"下一回合" + 次"半场退赛"(round<3 藏,前 3 回合逼你把 build 玩起来)
+  // - 完赛 (matchDone): 主"查看赛程结算" + 次"封存赛程"
+  // - 破产/首局: 沿用 v1.0.58 逻辑
+  if(win && !bankrupt && seasonInfo && seasonInfo.round >= 1){
+    if(_matchDone){
+      cashOutBtn.style.display = 'block';
+      retryBtn.textContent = '查看赛程结算';
+      cashOutBtn.textContent = '直接封存 · 不看结算';
+    } else if(seasonInfo.round >= 3){
+      cashOutBtn.style.display = 'block';
+      retryBtn.textContent = `下一回合 (${seasonInfo.round + 1}/${_matchLen})`;
+      cashOutBtn.textContent = '半场退赛 · 战绩不入榜';
+    } else {
+      // round 1~2: 逼你继续,不给退路
+      cashOutBtn.style.display = 'none';
+      retryBtn.textContent = `下一回合 (${seasonInfo.round + 1}/${_matchLen})`;
+    }
+  } else {
+    cashOutBtn.style.display = 'none';
+    retryBtn.textContent = bankrupt ? '再战新赛程' : '再来一局';
+  }
+
+  // ===== v1.0.60: 中盘冲线路径分岔 —— win && !bankrupt && !matchDone 走休整室(战后复盘室),完全跳过 endOv =====
+  const goIntermission = (win && !bankrupt && seasonInfo && !_matchDone && seasonInfo.round >= 1);
+  document.getElementById('evtToast').classList.remove('show');
+  closeGuide();
+  // 结算延迟:等终点强平的飘字/粒子/飞钱/HUD 脉冲全部落地入袋(spawnFlyMoney dur 0.55~0.83s + delay 累计 ~0.27s + pop 收尾)
+  // 破产走 wipeout 动画自带节奏,只延迟 500ms 让红闪+shake 收束;正常/胜利留 1100ms 让飞钱汇聚到 HUD、资金数字弹跳完
+  const settleDelay = bankrupt ? 500 : 1100;
+  // 期间保留 HUD/priceBanner/ctrl 显示,让玩家看到资金数字被飞钱推上去这个"落袋"过程
+  setTimeout(()=>{
+    document.getElementById('hud').classList.add('hide');
+    document.getElementById('priceBanner').classList.add('hide');
+    document.body.classList.remove('playing');
+    document.getElementById('ctrl').classList.add('hide');
+    document.getElementById('helpBtn').classList.add('hide');
+    if(goIntermission){
+      // 中盘冲线 —— 直接开休整室,不显示 endOv,也不显示 homeBtn(玩家要么选卡要么点跳过)
+      openIntermission(seasonInfo);
+    } else {
+      // 完赛/破产/首局 —— 走原 endOv 结算面板路径
+      document.getElementById('endOv').classList.remove('hide');
+      document.getElementById('homeBtn').classList.remove('hide');   // 结算页才显示左上角返回
+      // 失败定调音:结算页弹出时补一段下坠琶音,强化"完了"的挫败收束(赢的 sndWin 已在冲线时响过,不重复)
+      if(!win){ try{ sndLose(); }catch(e){} }
+    }
+    cancelAnimationFrame(raf); draw();
+  }, settleDelay);
+}
+
+function bindBtn(el,set){
+  const on=e=>{e.preventDefault(); if(AC&&AC.state==='suspended')AC.resume(); set(true); el.classList.add('on');};
+  const off=e=>{e.preventDefault(); set(false); el.classList.remove('on');};
+  el.addEventListener('touchstart',on,{passive:false}); el.addEventListener('touchend',off); el.addEventListener('touchcancel',off);
+  el.addEventListener('mousedown',on); el.addEventListener('mouseup',off); el.addEventListener('mouseleave',off);
+}
+bindBtn(document.getElementById('gas'),v=>gasOn=v);
+// 平仓按钮：tap 一键平掉当前持仓结算（空仓时灰显无效）
+(function(){
+  const cb=document.getElementById('closeBtn');
+  const fire=e=>{ e.preventDefault(); if(AC&&AC.state==='suspended')AC.resume();
+    if(position){ closePosition(false); cb.classList.add('on'); setTimeout(()=>cb.classList.remove('on'),130); } };
+  cb.addEventListener('touchstart',fire,{passive:false});
+  cb.addEventListener('mousedown',fire);
+})();
+// 做多/做空 按钮：tap = 空仓建仓 / 同向加杠杆 / 反向反手（持有态由 syncPosBtns 每帧同步常亮）
+function bindPosBtn(el,dir){
+  const fire=e=>{ e.preventDefault(); if(AC&&AC.state==='suspended')AC.resume(); pressDir(dir);
+    el.classList.add('tap'); setTimeout(()=>el.classList.remove('tap'),120); };
+  el.addEventListener('touchstart',fire,{passive:false});
+  el.addEventListener('mousedown',fire);
+}
+bindPosBtn(document.getElementById('longBtn'),1);
+bindPosBtn(document.getElementById('shortBtn'),-1);
+// 同步：持仓方向按钮常亮+显示杠杆倍数；平仓键有仓→armed可平、空仓→disabled灰显
+function syncPosBtns(){
+  const lb=document.getElementById('longBtn'), sb=document.getElementById('shortBtn'), cb=document.getElementById('closeBtn');
+  if(!lb||!sb) return;
+  const hasL=!!(position&&position.dir===1), hasS=!!(position&&position.dir===-1);
+  lb.classList.toggle('held', hasL);
+  sb.classList.toggle('held', hasS);
+  const stk=position?position.stake:0;
+  lb.innerHTML = '<svg class="psIco" viewBox="0 0 24 24"><path d="M12 19V5M12 5l-6 6M12 5l6 6"/></svg><span class="psTxt">'+(hasL?('做多 $'+stk):'做多')+'</span>';
+  sb.innerHTML = '<svg class="psIco" viewBox="0 0 24 24"><path d="M12 5v14M12 19l-6-6M12 19l6-6"/></svg><span class="psTxt">'+(hasS?('做空 $'+stk):'做空')+'</span>';
+  if(cb){ cb.classList.toggle('disabled', !position); cb.classList.toggle('armed', !!position); }
+}
+addEventListener('keydown',e=>{
+  // ===== v1.0.57: Buff 抽卡时:1/2/3 选卡 · 空格/←/X 允许平仓落袋(不许开新仓/加仓/反手) =====
+  if(buffPickState){
+    if(e.key==='1'||e.key==='2'||e.key==='3'){
+      e.preventDefault();
+      pickBuff(parseInt(e.key)-1);
+      return;
+    }
+    // 抽卡时唯一允许的持仓操作:平仓(有仓才响应)
+    if((e.key===' '||e.key==='ArrowLeft'||e.key==='x'||e.key==='X') && !e.repeat){
+      e.preventDefault();
+      if(position){ closePosition(false); refreshPickHudPatch(); }
+      return;
+    }
+    return;   // 其他键全吞
+  }
+  if(e.key==='ArrowRight')gasOn=true;   // → 专职跳跃/秀一下
+  if(e.key==='ArrowUp'){ e.preventDefault(); if(!e.repeat) pressDir(1); }
+  if(e.key==='ArrowDown'){ e.preventDefault(); if(!e.repeat) pressDir(-1); }
+  // 空格 / ← / X = 平仓（空格是最顺手的键，绑给核心动作平仓）
+  if((e.key===' '||e.key==='ArrowLeft'||e.key==='x'||e.key==='X') && !e.repeat){ e.preventDefault(); if(position) closePosition(false); } });
+addEventListener('keyup',e=>{ if(e.key==='ArrowRight')gasOn=false; });
+
+// ===== 抽卡 / 行情库 =====
+let lastRun=null;
+// 兼容旧调用：home 不再有选股网格，renderPicker 仅刷新首页（无操作即可）
+function renderPicker(){ /* 首页已无选股网格，留空兼容旧调用 */ }
+
+// —— 开局抽卡：老虎机式滚动翻出本局随机标的 ——
+let drawTimer=null;
+function randomKey(){
+  if(!TRACK_ORDER.length) return 'APL';
+  return TRACK_ORDER[Math.floor(Math.random()*TRACK_ORDER.length)];
+}
+function showCardOverlay(){
+  document.getElementById('startOv').classList.add('hide');
+  document.getElementById('endOv').classList.add('hide');
+  document.getElementById('libOv').classList.add('hide');
+  document.getElementById('homeBtn').classList.remove('hide');  // 抽卡时可左上角退回首页
+  document.getElementById('cardOv').classList.remove('hide');
+}
+// 抽卡仪式：滚动 N 次→减速→锁定→蓄势→可"骑上去"
+function drawCard(targetKey){
+  initAudio(); if(AC&&AC.state==='suspended') AC.resume();
+  if(!TRACK_ORDER.length){ trackKey='APL'; startGame(); return; }
+  const finalKey = targetKey || randomKey();
+  showCardOverlay();
+  const slot=document.getElementById('slot'),
+        nm=document.getElementById('slotName'), cls=document.getElementById('slotCls'),
+        desc=document.getElementById('slotDesc'), hint=document.getElementById('drawHint');
+  slot.classList.remove('locked'); desc.classList.remove('show');
+  hint.style.display='';
+  hint.textContent='正在接入行情…';
+  // 滚动：先快后慢，最后一帧落在 finalKey
+  let ticks=0;
+  const total=18 + Math.floor(Math.random()*6);   // 滚动次数
+  if(drawTimer) clearInterval(drawTimer);
+  function spin(){
+    ticks++;
+    const k = ticks>=total ? finalKey : randomKey();
+    const t=TRACKS[k];
+    nm.textContent=t.name;
+    cls.textContent=t.cls; cls.style.color=t.color;
+    try{ sndJump&&sndJump(); }catch(e){}
+    if(ticks>=total){
+      clearInterval(drawTimer); drawTimer=null;
+      // 锁定本局标的
+      trackKey=finalKey;
+      slot.classList.add('locked');
+      desc.textContent='“'+t.desc+'”'; desc.classList.add('show');
+      try{ sndWin&&sndWin(); }catch(e){}
+      // 看清是哪只 → 自动进场（无需确认按钮）
+      hint.style.display='';
+      let cd=2;
+      hint.textContent='就它了，出发！';
+      // 停顿约 1.1s 让玩家看清名字+吐槽，再自动开跑
+      drawTimer=setTimeout(()=>{
+        drawTimer=null;
+        document.getElementById('cardOv').classList.add('hide');
+        startGame();
+      }, 1100);
+    } else {
+      // 动态减速：越接近末尾间隔越大
+      const remain=total-ticks;
+      let next= remain>8 ? 55 : remain>4 ? 110 : remain>1 ? 200 : 320;
+      clearInterval(drawTimer);
+      drawTimer=setInterval(spin, next);   // 重设间隔实现减速
+    }
+  }
+  drawTimer=setInterval(spin, 55);
+}
+
+// —— 我的行情库 ——
+function openLibrary(){
+  renderLibrary();
+  document.getElementById('startOv').classList.add('hide');
+  document.getElementById('libOv').classList.remove('hide');
+}
+function closeLibrary(){
+  document.getElementById('libOv').classList.add('hide');
+  document.getElementById('startOv').classList.remove('hide');
+}
+function renderLibrary(){
+  const list=document.getElementById('libList');
+  const played=getPlayed().filter(k=>TRACKS[k]);   // 仅显示当前数据里仍存在的
+  if(!played.length){
+    list.innerHTML='<div id="libEmpty">还没玩过任何标的。回首页点「出发」随机抽一只开始吧</div>';
+    return;
+  }
+  // 按最高分降序，更有"战绩榜"感
+  played.sort((a,b)=>getBest(b)-getBest(a));
+  list.innerHTML='';
+  played.forEach(k=>{
+    const t=TRACKS[k], best=getBest(k), stars=getStars(k);
+    const row=document.createElement('div');
+    row.className='libRow';
+    const starStr='★★★'.split('').map((s,i)=>i<stars?'★':'☆').join('');
+    row.innerHTML=`<div class="lrEmoji">${t.emoji}</div>
+      <div class="lrMid"><div class="lrName">${t.name} <span style="font-size:11px;color:${t.color}">${t.cls}</span></div>
+        <div class="lrSub">${t.desc}</div></div>
+      <div class="lrBest"><div class="lrBestVal">${best>0?('$'+best.toLocaleString()):'—'}</div>
+        <div class="lrStars">${starStr}</div></div>`;
+    row.onclick=()=>{ document.getElementById('libOv').classList.add('hide'); drawCard(k); };  // 重开指定股(走抽卡仪式但锁定该股)
+    list.appendChild(row);
+  });
+}
+
+
+// ===== 分享战绩卡（canvas 现画）=====
+function drawShareCard(){
+  if(!lastRun) return;
+  const r=lastRun, t=TRACKS[r.key];
+  // v1.0.58d: 结算文案三态化 —— $0 爆仓 / 亏损 / 平进 / 小赚 / 大赚,让分享卡本身讲故事
+  const startCash = (typeof getSeasonStartCash==='function' && r.total!=null) ? getSeasonStartCash() : (CONFIG.START_CASH||10000);
+  const pctRaw = startCash>0 ? (r.total-startCash)/startCash*100 : 0;
+  const pctStr = (pctRaw>=0?'+':'')+pctRaw.toFixed(0)+'%';
+  const isZero = r.total<=0 || (!r.win && r.total<startCash*0.02);   // 爆仓归零(允许 2% 容差)
+  const bigWin = r.win && pctRaw>=50;
+  const win    = r.win && !bigWin;
+  const smallLoss = !r.win && !isZero;
+  // 副标题
+  const subTitles = {
+    zero:'账户归零 · 复盘卡',
+    bigWin:'一战封神 · 战绩卡',
+    win:'稳中带赚 · 战绩卡',
+    smallLoss:'亏麻了 · 复盘卡',
+    flat:'高开低走 · 战绩卡'
+  };
+  const subKey = isZero?'zero':bigWin?'bigWin':win?'win':smallLoss?'smallLoss':'flat';
+  // 大数字下方副标
+  const numSub = isZero
+    ? '爆仓归零 · 血本无归'
+    : (r.win ? '落袋 '+pctStr : '亏损 '+pctStr);
+  const numSubColor = isZero?'#e06d6d':r.win?'#3ddc97':'#e06d6d';
+  // 底部段子(自嘲激将)
+  const tauntPool = {
+    zero:[
+      '我在 '+t.name+' 上归零了 · 你比我强吗?',
+      '一分不剩 · 敢来保住本金吗?',
+      '账户见底 · 求超越',
+      '爆仓退场 · 换你上?'
+    ],
+    smallLoss:[
+      '我在 '+t.name+' 上亏了 '+pctStr+' · 你能守住吗?',
+      '差点冲线 · 换你试试?'
+    ],
+    flat:[
+      '我在 '+t.name+' 上打了个平手 · 你能赚吗?'
+    ],
+    win:[
+      '我在 '+t.name+' 上落袋 '+pctStr+' · 敢来超越吗?',
+      '$'+r.total.toLocaleString()+' 落袋 · 你比我准吗?'
+    ],
+    bigWin:[
+      '我在 '+t.name+' 上狂赚 '+pctStr+' · 谁能超我?',
+      '一战封神 '+pctStr+' · 求挑战者'
+    ]
+  };
+  const pool = tauntPool[subKey];
+  const taunt = pool[Math.floor(Math.random()*pool.length)];
+  const sc=document.getElementById('shareCanvas'), g=sc.getContext('2d');
+  const w=sc.width, h=sc.height;
+  // 背景渐变（落日，去紫）
+  const bg=g.createLinearGradient(0,0,0,h);
+  bg.addColorStop(0,'#16191f'); bg.addColorStop(1,'#101216');
+  g.fillStyle=bg; g.fillRect(0,0,w,h);
+  // 边框
+  g.strokeStyle='rgba(255,255,255,.14)'; g.lineWidth=1;
+  g.strokeRect(14,14,w-28,h-28);
+  // 标题（斜体 chrome 感）
+  g.textAlign='left'; g.fillStyle='#3ddc97'; g.font='600 34px -apple-system,sans-serif';
+  g.fillText('K线狂飙', 44, 74);
+  g.fillStyle='#3ddc97'; g.font='600 16px sans-serif';
+  g.fillText(subTitles[subKey], 44, 100);
+  // 股票名 + 难度
+  g.fillStyle='#eef1f5'; g.font='600 56px sans-serif';
+  g.fillText(t.name, 44, 175);
+  g.fillStyle='#9aa3b0'; g.font='500 20px sans-serif';
+  g.fillText(t.tier+' 赛道 · '+(r.win?'冲线成功':(isZero?'爆仓归零':'中途翻车')), 44, 208);
+  // K线缩略图
+  const cx=44, cy=250, cw=w-88, ch=150;
+  g.strokeStyle='rgba(120,150,210,.2)'; g.lineWidth=1; g.strokeRect(cx,cy,cw,ch);
+  if(terrain&&terrain.length){
+    let lo=Math.min(...terrain.map(p=>p.y)), hi=Math.max(...terrain.map(p=>p.y));
+    g.beginPath();
+    terrain.forEach((p,i)=>{ const px=cx+(p.x/trackLen)*cw, py=cy+((p.y-lo)/(hi-lo+1e-6))*(ch-20)+10;
+      i===0?g.moveTo(px,py):g.lineTo(px,py); });
+    g.strokeStyle=t.color; g.lineWidth=2.5; g.stroke();
+  }
+  // 大分数(爆仓时数字变红,视觉提示)
+  g.textAlign='center';
+  g.fillStyle=isZero?'#e06d6d':(r.win?'#3ddc97':'#e06d6d');
+  g.font='600 84px sans-serif';
+  g.fillText('$'+r.total.toLocaleString(), w/2, 510);
+  // v1.0.58d: 数字下方三态副标(替代恒定"总收益")
+  g.fillStyle=numSubColor; g.font='500 20px sans-serif';
+  g.fillText(numSub, w/2, 540);
+  // 星级
+  g.font='44px sans-serif';
+  let starsLine=''; for(let i=0;i<3;i++) starsLine+=(i<r.stars?'★':'☆');
+  g.fillStyle='#3ddc97'; g.fillText(starsLine, w/2, 605);
+  // 三项数据
+  const stats=[['',r.flips,'空翻'],['',r.perfectLands,'完美落地'],['',r.dur+'s','用时']];
+  const sw=cw/3;
+  stats.forEach((s,i)=>{
+    const sx=cx+sw*i+sw/2;
+    g.fillStyle='#eef1f5'; g.font='600 34px sans-serif'; g.fillText(''+s[1], sx, 680);
+    g.fillStyle='#9aa3b0'; g.font='500 15px sans-serif'; g.fillText(s[2], sx, 706);
+  });
+  // 底部召唤(v1.0.58d: 情绪化段子替代通用广告)
+  g.fillStyle='#7a8391'; g.font='500 22px sans-serif';
+  g.fillText(taunt, w/2, 760);
+}
+
+document.getElementById('startBtn').onclick=()=>drawCard();     // 出发=随机抽卡
+document.getElementById('libBtn').onclick=openLibrary;
+document.getElementById('libBackBtn').onclick=closeLibrary;
+document.getElementById('bgmBtn').onclick=()=>{ initAudio(); if(AC&&AC.state==='suspended')AC.resume(); toggleBGM(); };
+document.getElementById('bgmBtn').textContent=bgmEnabled?'♪':'♪̶';
+document.getElementById('retryBtn').onclick=()=>{   // 再来一局 = 随机再抽一只(走抽卡仪式)
+  // v1.0.59: 完赛后此按钮改为"查看赛程结算大屏"
+  const _si = window._lastSeasonInfo;
+  if(_si && _si.matchDone && !_si.seasonEnd){
+    document.getElementById('endOv').classList.add('hide');
+    document.getElementById('homeBtn').classList.add('hide');
+    openMatchRecap();   // 打开赛程终局大屏
+    return;
+  }
+  document.getElementById('endOv').classList.add('hide');
+  document.getElementById('homeBtn').classList.add('hide');
+  drawCard();
+};
+// v1.0.59: 半场退赛 —— round>=3 才出按钮;完赛按钮走"直接封存不看大屏"分支;
+// 退赛不入 best_peak/best_round(那是完赛荣誉),直接清存档回首页,和"S 封神只属于跑完 8 回合的人"呼应
+document.getElementById('cashOutBtn').onclick=()=>{
+  // 完赛点"直接封存"才写 best 榜(matchDone 时是荣誉退出);中盘退赛不入榜
+  const s = getSeason();
+  if(s && s.matchDone){
+    const bestSeason = +(localStorage.getItem('stonk_best_season')||0);
+    if(s.peak > bestSeason) localStorage.setItem('stonk_best_season', s.peak);
+    const bestRound = +(localStorage.getItem('stonk_best_season_round')||0);
+    if(s.round > bestRound) localStorage.setItem('stonk_best_season_round', s.round);
+  }
+  clearSeason();
+  goHome();
+};
+
+// ===== v1.0.59: 赛程终局大屏 —— 8 回合冲线后打开 =====
+// 评级规则:按总收益率 = (cash - START_CASH) / START_CASH * 100
+//   S: >=200%    A: >=100%    B: >=50%    C: >=0%    D: <0%
+function calcMatchGrade(overallPct){
+  if(overallPct >= 200) return { letter:'S', label:'封神',    cls:'g-S' };
+  if(overallPct >= 100) return { letter:'A', label:'股神',    cls:'g-A' };
+  if(overallPct >=  50) return { letter:'B', label:'老手',    cls:'g-B' };
+  if(overallPct >=   0) return { letter:'C', label:'保本',    cls:'g-C' };
+  return                       { letter:'D', label:'菜狗',    cls:'g-D' };
+}
+function openMatchRecap(){
+  const si = window._lastSeasonInfo;
+  if(!si) return;
+  // v1.0.71: 赛程完赛 → 提交分数到 B 站 Toy 排行榜 (si.cash = 最终净资产,允许负数)
+  if(typeof window.lbSubmitScore === 'function'){
+    window.lbSubmitScore(si.cash);
+  }
+  const matchLen = si.matchLen || CONFIG.MATCH_LEN;
+  const overallPct = ((si.cash - CONFIG.START_CASH) / CONFIG.START_CASH * 100);
+  const grade = calcMatchGrade(overallPct);
+  // Header 评级
+  const gradeEl = document.getElementById('mrGrade');
+  gradeEl.className = grade.cls;
+  document.getElementById('mrGradeLetter').textContent = grade.letter;
+  document.getElementById('mrGradeLabel').textContent  = grade.label;
+  // 顶部三项统计
+  const pctEl = document.getElementById('mrOverallPct');
+  pctEl.textContent = (overallPct>=0 ? '+' : '') + overallPct.toFixed(0) + '%';
+  pctEl.className = 'mrV ' + (overallPct>=0 ? 'up' : 'down');
+  document.getElementById('mrPeak').textContent = '$' + (si.peak||0).toLocaleString();
+  // 最强单局 = history 里 delta 最大的那只
+  const hist = si.history || [];
+  let bestRun = null;
+  for(const h of hist){ if(!bestRun || h.delta > bestRun.delta) bestRun = h; }
+  document.getElementById('mrBestRun').textContent = bestRun
+    ? `${bestRun.key} +${(bestRun.delta/(bestRun.end - bestRun.delta)*100).toFixed(0)}%`
+    : '—';
+  // 8 回合缩略战绩
+  const roundsEl = document.getElementById('mrRounds');
+  const cells = [];
+  for(let i=0; i<matchLen; i++){
+    const h = hist[i];
+    if(h){
+      const up = h.delta >= 0;
+      const pct = h.end - h.delta > 0 ? (h.delta / (h.end - h.delta) * 100) : 0;
+      cells.push(`<div class="mrRound ${up?'up':'down'}">
+        <div class="mrRNum">${i+1}</div>
+        <div class="mrRKey">${h.key}</div>
+        <div class="mrRDelta">${up?'+':''}${pct.toFixed(0)}%</div>
+      </div>`);
+    } else {
+      cells.push(`<div class="mrRound"><div class="mrRNum">${i+1}</div><div class="mrRKey">—</div><div class="mrRDelta">—</div></div>`);
+    }
+  }
+  roundsEl.innerHTML = cells.join('');
+  // 最终 build
+  const buildEl = document.getElementById('mrBuild');
+  const buffs = si.buffs || [];
+  if(buffs.length === 0){
+    buildEl.innerHTML = '<div class="mrBuff" style="opacity:.5">未抽到任何 buff · 硬核裸奔</div>';
+  } else {
+    buildEl.innerHTML = buffs.map(id => {
+      const c = BUFF_CARDS.find(x => x.id === id);
+      if(!c) return '';
+      return `<div class="mrBuff rarity-${c.rarity}">${c.name}</div>`;
+    }).join('');
+  }
+  document.getElementById('matchRecapOv').classList.remove('hide');
+}
+function closeMatchRecap(){
+  document.getElementById('matchRecapOv').classList.add('hide');
+}
+
+// ===== v1.0.60: 战后复盘室(休整室) —— 局间三段式过渡 =====
+// 触发条件:中盘冲线(win && !bankrupt && !matchDone),完全跳过 endOv
+// 三段:本场战绩(symbol/日期/本金→结算/涨跌/回撤) + 关键时刻回顾(3 条 buffNodes reviewEvents) + 抽卡(3 选 1 + 跳过)
+window._intermissionCtx = null;   // 记录当前休整室上下文:{seasonInfo, matchLen, nextRound, runStart, runEnd, runPeak, drawdown, symbol, dateStart, dateEnd, nodes}
+function openIntermission(seasonInfo){
+  const ctx = window._intermissionCtx = {
+    seasonInfo,
+    matchLen: seasonInfo.matchLen || CONFIG.MATCH_LEN,
+    nextRound: seasonInfo.round + 1,   // 休整完成后要进的下一回合
+    runStart: runStartCash,
+    runEnd: Math.floor(score),
+    runPeak: Math.floor(runPeak),
+    drawdown: runMaxDrawdown,          // 负数,如 -0.18
+    symbol: TRACKS[trackKey].sym,
+    trackKey,
+    dateStart: (terrain && terrain[0] && terrain[0].date) || '',
+    dateEnd:   (terrain && terrain[terrain.length-1] && terrain[terrain.length-1].date) || '',
+    nodes: buffNodes.slice(),
+  };
+  const delta = ctx.runEnd - ctx.runStart;
+  const deltaPct = ctx.runStart>0 ? (delta / ctx.runStart * 100) : 0;
+  // 顶栏:显示"回合 N/8" —— seasonInfo.round 是刚打完的这一回合
+  document.getElementById('imRound').textContent = `回合 ${seasonInfo.round}/${ctx.matchLen}`;
+  // 战绩块
+  document.getElementById('imStockKey').textContent = ctx.symbol;
+  document.getElementById('imStockDate').textContent = ctx.dateStart && ctx.dateEnd
+    ? `${ctx.dateStart} → ${ctx.dateEnd}` : '';
+  document.getElementById('imCash').textContent =
+    `$${ctx.runStart.toLocaleString()} → $${ctx.runEnd.toLocaleString()}`;
+  const deltaEl = document.getElementById('imDelta');
+  deltaEl.textContent = (delta>=0?'+':'') + delta.toLocaleString() + '  ('+(deltaPct>=0?'+':'') + deltaPct.toFixed(1) + '%)';
+  deltaEl.className = 'imStatVal ' + (delta>=0?'up':'down');
+  const ddEl = document.getElementById('imDrawdown');
+  const ddPct = ctx.drawdown * 100;
+  ddEl.textContent = ddPct < -0.5
+    ? `${ddPct.toFixed(1)}%  · 峰 $${ctx.runPeak.toLocaleString()}`
+    : '未见明显回撤';
+  ddEl.className = 'imStatVal ' + (ddPct<-5?'down':'');
+  // 事件回顾块
+  const evBox = document.getElementById('imEvents');
+  evBox.innerHTML = '';
+  const events = reviewEvents(ctx.nodes);
+  if(events.length===0){
+    evBox.innerHTML = '<div style="color:var(--txt3);font-size:12px;letter-spacing:2px;padding:10px 4px;text-align:center;">本场无关键事件</div>';
+  } else {
+    for(const e of events){
+      const row = document.createElement('div');
+      row.className = 'imEvent';
+      const pctStr = e.evtPct>=0 ? `+${e.evtPct.toFixed(1)}%` : `${e.evtPct.toFixed(1)}%`;
+      const pctCls = e.evtPct>=0 ? 'up' : 'down';
+      row.innerHTML = `
+        <div class="imEvIcon">${e.icon}</div>
+        <div class="imEvBody">
+          <div class="imEvHead"><span class="imEvDate">${e.date||''}</span><span class="imEvLabel">${e.label||'关键节点'}</span></div>
+          <div class="imEvJudge ${e.judgeCls}">${e.judge}</div>
+        </div>
+        <div class="imEvPct ${pctCls}">${pctStr}</div>`;
+      evBox.appendChild(row);
+    }
+  }
+  // 抽卡块 —— 复用 pickBuffCandidates 从对战里节点主题里挑 3 张卡(至少一张与本场事件类型协同)
+  const cardsBox = document.getElementById('imCards');
+  cardsBox.innerHTML = '';
+  const dominantKind = ctx.nodes.length ? ctx.nodes[ctx.nodes.length-1].evtKind : 'story';
+  const cands = pickBuffCandidates(3, dominantKind);
+  ctx._cands = cands;   // 保存供选卡用
+  cands.forEach((cd, idx)=>{
+    const card = document.createElement('div');
+    card.className = 'buffCard rarity-' + (cd.rarity||'common');
+    card.innerHTML = `
+      <div class="bcHead"><span class="bcNum">${idx+1}</span><span class="bcRarity">${(cd.rarity||'common').toUpperCase()}</span></div>
+      <div class="bcName">${cd.name}</div>
+      <div class="bcDesc">${cd.desc}</div>
+      ${cd.hint?`<div class="bcHint">${cd.hint}</div>`:''}`;
+    card.onclick = ()=>{ pickIntermissionCard(idx); };
+    cardsBox.appendChild(card);
+  });
+  document.getElementById('intermissionOv').classList.add('show');
+}
+// 根据 buffNodes 的 snapshot + evtPct,判定五种「关键时刻」文案
+function reviewEvents(nodes){
+  const out = [];
+  for(const n of nodes){
+    if(!n.snapshotted) continue;
+    const dir  = n.playerSnapshot ? (n.playerSnapshot.dir||0) : 0;
+    const pct  = n.evtPct || 0;
+    let judge, judgeCls, icon;
+    // 判定矩阵:
+    // dir=0  → 你选择观望(空仓落袋/仪表盘上没仓)
+    // dir=1  → 你多头满仓:pct>=0 吃到,pct<0 被套
+    // dir=-1 → 你空头满仓:pct<=0 押中,pct>0 被反噬
+    if(dir === 0){
+      judge = pct>=0 ? '你空仓错过' : '你空仓避险';
+      judgeCls = pct>=0 ? 'safe' : 'hit';
+      icon = pct>=0 ? '💤' : '🛡️';
+    } else if(dir === 1){
+      if(pct >= 0){ judge = '你满仓吃到';  judgeCls='hit';  icon='🚀'; }
+      else        { judge = '你正面挨刀';  judgeCls='hurt'; icon='💥'; }
+    } else {   // dir === -1
+      if(pct <= 0){ judge = '你做空押中';  judgeCls='hit';  icon='🎯'; }
+      else        { judge = '你被逼空反噬'; judgeCls='hurt'; icon='⚡'; }
+    }
+    out.push({ date:n.evtDate, label:n.evtLabel, evtPct:pct, judge, judgeCls, icon });
+  }
+  return out;
+}
+// 玩家在休整室选卡 → 加进 season.buffs + 关闭休整室 + 开下一回合
+function pickIntermissionCard(idx){
+  const ctx = window._intermissionCtx;
+  if(!ctx || !ctx._cands || !ctx._cands[idx]) return;
+  const cd = ctx._cands[idx];
+  // 写入赛季存档:buffs + activeBuffs 都追加
+  const s = getSeason();
+  if(s){
+    const buffs = (s.buffs || []).slice();
+    buffs.push(cd.id);
+    saveSeason({ ...s, buffs });
+  }
+  activeBuffs.push(cd.id);
+  closeIntermission(true);
+}
+// 跳过 = 保留原 build,不加卡 —— 直接进下一回合
+function closeIntermission(picked){
+  document.getElementById('intermissionOv').classList.remove('show');
+  const ctx = window._intermissionCtx;
+  window._intermissionCtx = null;
+  if(!ctx) { goHome(); return; }
+  // 进入下一回合:直接调用 startGame(不 goHome,不出结算面板)
+  // 保留 trackKey 不变,让玩家在同一支股票继续冲下一段? 还是换一支? —— 沿用旧路径:换一支股票(在 startOv 里选)
+  // 沿用旧行为:回选股页,玩家自己选下一场 —— 保持策略选择空间
+  goHome();
+}
+document.getElementById('imSkipBtn').onclick = ()=> closeIntermission(false);
+// 大屏底部按钮:再战新赛程 = 清空存档 + 回首页;分享战绩 = 复用 shareBtn(先关大屏)
+document.getElementById('mrNewMatchBtn').onclick=()=>{
+  const s = getSeason();
+  if(s){
+    const bestSeason = +(localStorage.getItem('stonk_best_season')||0);
+    if(s.peak > bestSeason) localStorage.setItem('stonk_best_season', s.peak);
+    const bestRound = +(localStorage.getItem('stonk_best_season_round')||0);
+    if(s.round > bestRound) localStorage.setItem('stonk_best_season_round', s.round);
+  }
+  clearSeason();
+  closeMatchRecap();
+  goHome();
+};
+document.getElementById('mrShareBtn').onclick=()=>{
+  closeMatchRecap();
+  document.getElementById('shareBtn').click();   // 复用分享卡逻辑
+};
+document.getElementById('backBtn').onclick=()=>{
+  document.getElementById('endOv').classList.add('hide');
+  document.getElementById('startOv').classList.remove('hide');
+};
+// 左上角统一返回入口：playing 中途或结算页都能回选股
+function goHome(){
+  state='end';                                   // 标记非 play，step() 会停止推进
+  cancelAnimationFrame(raf);
+  if(engineGain) engineGain.gain.value=0;
+  document.getElementById('endOv').classList.add('hide');
+  document.getElementById('hud').classList.add('hide');
+  document.getElementById('priceBanner').classList.add('hide');
+  document.getElementById('ctrl').classList.add('hide');
+  document.getElementById('helpBtn').classList.add('hide');
+  closeGuide();
+  document.getElementById('evtToast').classList.remove('show');
+  document.getElementById('homeBtn').classList.add('hide');
+  document.getElementById('cardOv').classList.add('hide');
+  document.getElementById('libOv').classList.add('hide');
+  if(drawTimer){ clearTimeout(drawTimer); clearInterval(drawTimer); drawTimer=null; }
+  document.body.classList.remove('playing');
+  renderPicker();
+  document.getElementById('startOv').classList.remove('hide');
+}
+document.getElementById('homeBtn').onclick=goHome;
+// ===== 新手引导弹窗：openGuide/closeGuide + 入口绑定 =====
+function openGuide(){
+  document.getElementById('guide').classList.add('show');
+  // 每次打开都重置为收起态，首屏只露核心三键
+  document.getElementById('guideMore').classList.remove('open');
+  document.getElementById('guideMoreBtn').classList.remove('open');
+  document.getElementById('guideCard').scrollTop=0;
+}
+function closeGuide(){ document.getElementById('guide').classList.remove('show'); }
+document.getElementById('helpBtn').onclick=openGuide;
+document.getElementById('guideClose').onclick=closeGuide;
+document.getElementById('guideMoreBtn').onclick=function(){
+  const more=document.getElementById('guideMore');
+  const open=more.classList.toggle('open');
+  this.classList.toggle('open', open);
+  this.querySelector('.gmArrow').textContent = open ? '›' : '›'; // 箭头靠 CSS rotate
+  if(open){ // 展开后滚到详情，让用户看到新内容
+    requestAnimationFrame(()=>{ more.scrollIntoView({behavior:'smooth',block:'nearest'}); });
+  }
+};
+document.getElementById('guide').onclick=(e)=>{ if(e.target.id==='guide') closeGuide(); };  // 点遮罩空白处关闭
+document.getElementById('shareBtn').onclick=()=>{
+  drawShareCard();
+  document.getElementById('endOv').classList.add('hide');
+  document.getElementById('shareOv').classList.remove('hide');
+};
+document.getElementById('shareCloseBtn').onclick=()=>{
+  document.getElementById('shareOv').classList.add('hide');
+  document.getElementById('endOv').classList.remove('hide');
+};
+
+// ===== 移动端触控防护 =====
+// 竖屏引导：手动关闭后本次会话不再弹
+document.getElementById('rotDismiss').onclick=()=>{ document.body.classList.add('rot-dismissed'); };
+// 防双击缩放
+let lastTouch=0;
+document.addEventListener('touchend',e=>{
+  const now=Date.now();
+  if(now-lastTouch<300){ e.preventDefault(); }
+  lastTouch=now;
+},{passive:false});
+// 防双指缩放手势（iOS Safari）
+['gesturestart','gesturechange','gestureend'].forEach(ev=>
+  document.addEventListener(ev,e=>e.preventDefault()));
+// 防整页滚动/下拉刷新
+document.addEventListener('touchmove',e=>{ e.preventDefault(); },{passive:false});
+
+// ===== 载入真实行情（stocks.json）=====
+// 极简兜底：万一 stocks.json 加载失败，至少有一只合成股可玩
+function fallbackData(){
+  const prices=[]; let p=100;
+  for(let i=0;i<200;i++){ p*=(1+(Math.random()-0.46)*0.12); prices.push(Math.max(1,+p.toFixed(2))); }
+  return { SYN:{ sym:'合成行情', name:'合成行情', from:'2000', to:'今', prices, dates:[],
+    events:[], color:'#3ddc97', emoji:'', cls:'演示', desc:'离线兜底行情' } };
+}
+fetch('stocks.json',{cache:'no-cache'})
+  .then(r=>r.ok?r.json():Promise.reject(r.status))
+  .then(d=>{ STOCKDATA=(d&&Object.keys(d).length)?d:fallbackData(); buildTracks();
+             trackKey=randomKey(); console.log('[stocks] loaded', TRACK_ORDER.length, 'tracks'); })
+  .catch(err=>{ console.warn('[stocks] load failed, using fallback', err);
+                STOCKDATA=fallbackData(); buildTracks(); trackKey=randomKey(); });
+
+resize();
+
+// ===== v1.0.71: Bilibili Toy 排行榜集成 =====
+// SDK: https://s1.hdslb.com/bfs/seed/toy/app/sdk/toy-sdk.js (v1.2.0)
+// board=1 (单榜位) · period week/all (两个 tab) · limit 50
+// 上榜时机: matchDone=true 时提交 si.cash (赛程完赛净资产)
+(function(){
+  const LB_BOARD = 1;
+  const LB_LIMIT = 50;
+  let toyReady = false;      // SDK 是否加载并且 submitScore/getRankList 都被支持
+  let toyProfile = null;     // { avatar, nickname }
+  let curPeriod = 'week';
+
+  // 等 SDK 加载(defer + 可能异步) —— 最多轮询 3 秒
+  async function waitForToy(){
+    for(let i=0; i<30; i++){
+      if(window.toy && typeof window.toy.isSupport === 'function') return window.toy;
+      await new Promise(r=>setTimeout(r, 100));
+    }
+    return null;
+  }
+
+  async function initToy(){
+    const toy = await waitForToy();
+    if(!toy){ console.log('[toy] SDK 未加载,非 Toy 环境'); return; }
+    try{
+      const [okSubmit, okList] = await Promise.all([
+        toy.isSupport('submitScore'),
+        toy.isSupport('getRankList'),
+      ]);
+      if(!okSubmit || !okList){
+        console.log('[toy] 排行榜能力不可用', {okSubmit, okList});
+        return;
+      }
+      toyReady = true;
+      // 显示首页排行榜按钮
+      const btn = document.getElementById('lbBtn');
+      if(btn) btn.classList.remove('hide');
+      // 尝试拿用户资料(未登录会 reject,静默失败)
+      try{ toyProfile = await toy.getUserProfile(); }catch(e){ toyProfile = null; }
+      console.log('[toy] 排行榜就绪', toyProfile);
+    }catch(e){
+      console.warn('[toy] 初始化失败', e);
+    }
+  }
+
+  // 上报分数(赛程结算时调用) —— 允许负数(惨败榜)
+  window.lbSubmitScore = async function(rawScore){
+    if(!toyReady) return;
+    // score 范围 -16777216 ~ 16777215 (SDK 硬限)
+    const score = Math.max(-16777215, Math.min(16777215, Math.floor(rawScore)));
+    try{
+      await window.toy.submitScore({ board: LB_BOARD, score });
+      console.log('[toy] submitScore ok', score);
+    }catch(e){
+      console.warn('[toy] submitScore failed', e);
+    }
+  };
+
+  // 打开排行榜 overlay
+  window.openLeaderboard = function(){
+    if(!toyReady) return;
+    document.getElementById('startOv').classList.add('hide');
+    document.getElementById('lbOv').classList.remove('hide');
+    curPeriod = 'week';
+    updateTabUI();
+    loadAndRender();
+  };
+  window.closeLeaderboard = function(){
+    document.getElementById('lbOv').classList.add('hide');
+    document.getElementById('startOv').classList.remove('hide');
+  };
+
+  function updateTabUI(){
+    document.querySelectorAll('.lbTab').forEach(t=>{
+      t.classList.toggle('active', t.dataset.period === curPeriod);
+    });
+  }
+
+  async function loadAndRender(){
+    const listEl = document.getElementById('lbList');
+    const myEl   = document.getElementById('lbMyRank');
+    listEl.innerHTML = '<div class="lbEmpty">加载中…</div>';
+    myEl.classList.add('hide');
+    try{
+      const [list, mine] = await Promise.all([
+        window.toy.getRankList({ board: LB_BOARD, period: curPeriod, limit: LB_LIMIT }),
+        window.toy.getMyRank({ board: LB_BOARD, period: curPeriod }).catch(()=>null),
+      ]);
+      renderList(list || [], mine);
+    }catch(e){
+      console.warn('[toy] 加载榜单失败', e);
+      listEl.innerHTML = '<div class="lbEmpty">加载失败,稍后再试</div>';
+    }
+  }
+
+  function fmtScore(n){
+    // 分数原始单位是元(cash 直接提交),这里以 $XXX,XXX 展示
+    const sign = n < 0 ? '-' : '';
+    return sign + '$' + Math.abs(n).toLocaleString();
+  }
+
+  function renderList(list, mine){
+    const listEl = document.getElementById('lbList');
+    const myEl   = document.getElementById('lbMyRank');
+    // 我的排名条
+    if(mine && mine.ranked){
+      myEl.innerHTML = `
+        <div><span class="mrLbl">我的排名</span> <span class="mrRk">#${mine.rank}</span></div>
+        <div><span class="mrLbl">分数</span> <span class="mrSc ${mine.score<0?'down':''}">${fmtScore(mine.score)}</span></div>`;
+      myEl.classList.remove('hide');
+    } else if(mine){
+      myEl.innerHTML = `<div style="text-align:center;width:100%;color:var(--txt2);font-size:12px">还没上榜 · 完成一场赛程即可入榜</div>`;
+      myEl.classList.remove('hide');
+    }
+    // 榜单
+    if(!list.length){
+      listEl.innerHTML = '<div class="lbEmpty">榜单空空 · 争做第一人</div>';
+      return;
+    }
+    const myNick = toyProfile && toyProfile.nickname;
+    listEl.innerHTML = list.map(it=>{
+      const isMine = myNick && it.nickname === myNick;
+      const topCls = it.rank<=3 ? ' top'+it.rank : '';
+      const avatar = it.avatar
+        ? `<img src="${(it.avatar+'').replace(/^\/\//,'https://')}" onerror="this.style.display='none'"/>`
+        : '';
+      const scoreCls = it.score < 0 ? 'lbScore down' : 'lbScore';
+      return `<div class="lbRow${isMine?' mine':''}${topCls}">
+        <div class="lbRank">${it.rank}</div>
+        <div class="lbAvatar">${avatar}</div>
+        <div class="lbName">${escapeHtml(it.nickname||'匿名骑士')}</div>
+        <div class="${scoreCls}">${fmtScore(it.score)}</div>
+      </div>`;
+    }).join('');
+  }
+
+  function escapeHtml(s){
+    return (s+'').replace(/[&<>"']/g, c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+  }
+
+  // 绑事件
+  document.addEventListener('DOMContentLoaded', ()=>{
+    const lbBtn = document.getElementById('lbBtn');
+    const lbBack = document.getElementById('lbBackBtn');
+    if(lbBtn) lbBtn.onclick = ()=>window.openLeaderboard();
+    if(lbBack) lbBack.onclick = ()=>window.closeLeaderboard();
+    document.querySelectorAll('.lbTab').forEach(t=>{
+      t.onclick = ()=>{
+        curPeriod = t.dataset.period;
+        updateTabUI();
+        loadAndRender();
+      };
+    });
+  });
+  // DOMContentLoaded 可能已过(defer 脚本), 兜底
+  if(document.readyState !== 'loading'){
+    setTimeout(()=>{
+      const lbBtn = document.getElementById('lbBtn');
+      const lbBack = document.getElementById('lbBackBtn');
+      if(lbBtn && !lbBtn.onclick) lbBtn.onclick = ()=>window.openLeaderboard();
+      if(lbBack && !lbBack.onclick) lbBack.onclick = ()=>window.closeLeaderboard();
+      document.querySelectorAll('.lbTab').forEach(t=>{
+        if(!t.onclick) t.onclick = ()=>{ curPeriod = t.dataset.period; updateTabUI(); loadAndRender(); };
+      });
+    }, 0);
+  }
+
+  initToy();
+})();
+</script>
+</body>
+</html>
