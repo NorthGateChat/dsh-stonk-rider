@@ -20,7 +20,17 @@ export async function loadOriginalGame() {
   replace('<head>', `<head>
 <meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'unsafe-inline'; style-src 'unsafe-inline'; img-src data:; media-src data:; connect-src 'none'; form-action 'none'; base-uri 'none'">
 <!--DSH_STONK_BOOTSTRAP-->
-<style>${reviewStyle}</style>`)
+<style>${reviewStyle}</style>
+<style>
+/* Key hints live in pseudo-elements so the in-game PnL rewrites of #closeBtn
+   never wipe them; the space label follows the platform via a custom property. */
+#gas, #closeBtn { position:relative; }
+#gas::after, #closeBtn::after { position:absolute; left:50%; bottom:7px; transform:translateX(-50%);
+  font:600 10px/1 ui-monospace,Menlo,monospace; letter-spacing:.5px; opacity:.82;
+  white-space:nowrap; pointer-events:none; }
+#gas::after { content:'→'; }
+#closeBtn::after { content:var(--dsh-space-label,'空格'); }
+</style>`)
   replace('<script src="https://s1.hdslb.com/bfs/seed/toy/app/sdk/toy-sdk.js" defer></script>', '')
   replace('src="icon.png"', `src="data:image/png;base64,${icon}"`)
   replace("bgmEl.src='bgm.mp3'; bgmEl.loop=true; bgmEl.preload='auto'; bgmEl.crossOrigin='anonymous';",
@@ -83,6 +93,13 @@ export async function loadOriginalGame() {
       <div class="imSecLabel">升级 Build · 三选一</div>`)
   replace("document.addEventListener('touchmove',e=>{ e.preventDefault(); },{passive:false});",
     "document.addEventListener('touchmove',e=>{ if (!e.target.closest?.('#intermissionOv.show')) e.preventDefault(); },{passive:false});")
+  // The drive buttons print their keyboard hint through CSS pseudo-elements, so
+  // the game's own PnL rewrites of #closeBtn keep the hint. The Space label is
+  // localized per platform in the bootstrap below (Mac keyboards say "Space").
+  replace('<div class="gkRow"><span class="kbd">空格</span><span><b>平仓</b> / 落袋（主操作）</span></div>',
+    '<div class="gkRow"><span class="kbd" data-dsh-key="close">空格</span><span><b>平仓</b> / 落袋（主操作；<b>←</b> / <b>X</b> 亦可）</span></div>')
+  replace('<div class="gkRow"><span class="kbd">→</span><span>秀一下 / 跳跃捡钱</span></div>',
+    '<div class="gkRow"><span class="kbd">→</span><span><b>秀一下</b> / 跳跃捡钱（空中按住翻跟头）</span></div>')
   const loading = document.indexOf('// ===== 载入真实行情（stocks.json）=====')
   if (loading < 0) throw new Error('Stonk Rider data initialization not found')
   // The Bilibili SDK follows the network loader. Both are replaced by bundled data and a local bridge.
@@ -92,6 +109,13 @@ trackKey = randomKey();
 resize();
 ${review}
 ${bridge}
+;(() => {
+  // Mac keyboards label the space bar "Space"; keep the hints consistent with the platform.
+  const mac = /Mac|iPhone|iPad|iPod/.test(navigator.platform || navigator.userAgent || '');
+  const space = mac ? 'Space' : '空格';
+  if (mac) document.documentElement.style.setProperty('--dsh-space-label', '"' + space + '"');
+  for (const node of document.querySelectorAll('[data-dsh-key="close"]')) node.textContent = space;
+})();
 </script>
 </body>
 </html>`

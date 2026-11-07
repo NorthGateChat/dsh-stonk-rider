@@ -23,6 +23,8 @@ const chatSlot = 'stonk-rider.conversation'
 const title = 'Stonk Rider'
 const source = 'Stonk Rider 1.0.73 附带的离散历史价格采样'
 const trackCount = Object.keys(stocks).length
+// The space bar is the same key everywhere; only the printed label differs.
+const spaceKeyLabel = /Mac|iPhone|iPad|iPod/.test(globalThis.navigator?.platform || globalThis.navigator?.userAgent || '') ? 'Space' : '空格'
 
 type Topic = { kind: 'node'; event: TrackEvent; track: Track } | { kind: 'asset'; track: Track }
   | { kind: 'run'; date: string; finished: boolean; track: Track } | { kind: 'review'; review: RestReview; track: Track }
@@ -413,7 +415,7 @@ export function apply(ctx: ClientContext) {
             </div>}
           </div>
           <div className="stonk-stage-meta">
-            <span><Kbd>↑</Kbd> 做多 <Kbd>↓</Kbd> 做空 <Kbd>空格</Kbd> 平仓 <Kbd>→</Kbd> 跳跃 / 空翻</span>
+            <span><Kbd>↑</Kbd> 做多 <Kbd>↓</Kbd> 做空 <Kbd>{spaceKeyLabel}</Kbd> 平仓 <Kbd>←</Kbd>/<Kbd>X</Kbd> 也可 <Kbd>→</Kbd> 秀一下 / 空翻</span>
           </div>
           <section className="stonk-timeline" aria-label="关键价格节点">
             <div className="stonk-timeline-heading">
