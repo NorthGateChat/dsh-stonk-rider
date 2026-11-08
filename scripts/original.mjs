@@ -23,13 +23,18 @@ export async function loadOriginalGame() {
 <style>${reviewStyle}</style>
 <style>
 /* Key hints live in pseudo-elements so the in-game PnL rewrites of #closeBtn
-   never wipe them; the space label follows the platform via a custom property. */
-#gas, #closeBtn { position:relative; }
-#gas::after, #closeBtn::after { position:absolute; left:50%; bottom:7px; transform:translateX(-50%);
-  font:600 10px/1 ui-monospace,Menlo,monospace; letter-spacing:.5px; opacity:.82;
+   never wipe them; the space label follows the platform via a custom property.
+   Arrow keys get WASD fallbacks so a keyboard without arrow keys (Mac) still
+   plays: W 做多, S 做空, D 秀一下, Space / X 平仓. */
+#longBtn, #shortBtn, #gas, #closeBtn { position:relative; }
+#longBtn::after, #shortBtn::after, #gas::after, #closeBtn::after {
+  position:absolute; left:50%; bottom:4px; transform:translateX(-50%);
+  font:600 9px/1 ui-monospace,Menlo,monospace; letter-spacing:.4px; opacity:.72;
   white-space:nowrap; pointer-events:none; }
-#gas::after { content:'→'; }
-#closeBtn::after { content:var(--dsh-space-label,'空格'); }
+#longBtn::after { content:'↑ W'; }
+#shortBtn::after { content:'↓ S'; }
+#gas::after { content:'→ D'; }
+#closeBtn::after { content:var(--dsh-space-label,'空格') ' X'; }
 </style>`)
   replace('<script src="https://s1.hdslb.com/bfs/seed/toy/app/sdk/toy-sdk.js" defer></script>', '')
   replace('src="icon.png"', `src="data:image/png;base64,${icon}"`)
@@ -93,13 +98,22 @@ export async function loadOriginalGame() {
       <div class="imSecLabel">升级 Build · 三选一</div>`)
   replace("document.addEventListener('touchmove',e=>{ e.preventDefault(); },{passive:false});",
     "document.addEventListener('touchmove',e=>{ if (!e.target.closest?.('#intermissionOv.show')) e.preventDefault(); },{passive:false});")
-  // The drive buttons print their keyboard hint through CSS pseudo-elements, so
+  // Arrow keys are unavailable on some Mac keyboards; WASD mirrors them.
+  replace("  if(e.key==='ArrowRight')gasOn=true;   // → 专职跳跃/秀一下\n  if(e.key==='ArrowUp'){ e.preventDefault(); if(!e.repeat) pressDir(1); }\n  if(e.key==='ArrowDown'){ e.preventDefault(); if(!e.repeat) pressDir(-1); }",
+    "  if(e.key==='ArrowRight'||e.key==='d'||e.key==='D')gasOn=true;   // → / D 专职跳跃/秀一下\n  if(e.key==='ArrowUp'||e.key==='w'||e.key==='W'){ e.preventDefault(); if(!e.repeat) pressDir(1); }\n  if(e.key==='ArrowDown'||e.key==='s'||e.key==='S'){ e.preventDefault(); if(!e.repeat) pressDir(-1); }")
+  replace("addEventListener('keyup',e=>{ if(e.key==='ArrowRight')gasOn=false; });",
+    "addEventListener('keyup',e=>{ if(e.key==='ArrowRight'||e.key==='d'||e.key==='D')gasOn=false; });")
+  // The two drive buttons print their keyboard hint through CSS pseudo-elements, so
   // the game's own PnL rewrites of #closeBtn keep the hint. The Space label is
   // localized per platform in the bootstrap below (Mac keyboards say "Space").
+  replace('<div class="gkRow"><span class="kbd">↑</span><span>做多 / 看涨（再按<b>加仓</b>）</span></div>',
+    '<div class="gkRow"><span class="kbd">↑</span><span class="kbd">W</span><span>做多 / 看涨（再按<b>加仓</b>）</span></div>')
+  replace('<div class="gkRow"><span class="kbd">↓</span><span>做空 / 看跌（再按<b>加仓</b>）</span></div>',
+    '<div class="gkRow"><span class="kbd">↓</span><span class="kbd">S</span><span>做空 / 看跌（再按<b>加仓</b>）</span></div>')
   replace('<div class="gkRow"><span class="kbd">空格</span><span><b>平仓</b> / 落袋（主操作）</span></div>',
     '<div class="gkRow"><span class="kbd" data-dsh-key="close">空格</span><span><b>平仓</b> / 落袋（主操作；<b>←</b> / <b>X</b> 亦可）</span></div>')
   replace('<div class="gkRow"><span class="kbd">→</span><span>秀一下 / 跳跃捡钱</span></div>',
-    '<div class="gkRow"><span class="kbd">→</span><span><b>秀一下</b> / 跳跃捡钱（空中按住翻跟头）</span></div>')
+    '<div class="gkRow"><span class="kbd">→</span><span class="kbd">D</span><span><b>秀一下</b> / 跳跃捡钱（空中按住翻跟头；Mac 无方向键用 <b>W/S/D</b>）</span></div>')
   const loading = document.indexOf('// ===== 载入真实行情（stocks.json）=====')
   if (loading < 0) throw new Error('Stonk Rider data initialization not found')
   // The Bilibili SDK follows the network loader. Both are replaced by bundled data and a local bridge.

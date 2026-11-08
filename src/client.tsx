@@ -415,7 +415,7 @@ export function apply(ctx: ClientContext) {
             </div>}
           </div>
           <div className="stonk-stage-meta">
-            <span><Kbd>↑</Kbd> 做多 <Kbd>↓</Kbd> 做空 <Kbd>{spaceKeyLabel}</Kbd> 平仓 <Kbd>←</Kbd>/<Kbd>X</Kbd> 也可 <Kbd>→</Kbd> 秀一下 / 空翻</span>
+            <span><Kbd>↑</Kbd>/<Kbd>W</Kbd> 做多 <Kbd>↓</Kbd>/<Kbd>S</Kbd> 做空 <Kbd>{spaceKeyLabel}</Kbd>/<Kbd>X</Kbd> 平仓 <Kbd>→</Kbd>/<Kbd>D</Kbd> 秀一下</span>
           </div>
           <section className="stonk-timeline" aria-label="关键价格节点">
             <div className="stonk-timeline-heading">
