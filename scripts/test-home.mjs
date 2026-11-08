@@ -41,6 +41,29 @@ check('goHome refresh', html.includes("renderPicker();\n  dshHomeSummary();\n  d
 check('next round continues from intermission', html.includes('drawCard(null, Math.min(ctx.nextRound, ctx.matchLen));'))
 check('drawCard accepts the round label', html.includes('function drawCard(targetKey, round){'))
 check('intermission copy explains the hand-off', html.includes('选卡或跳过后，直接进入第 '))
+check('PC layout media query', html.includes('@media (min-width:720px) and (min-height:380px)'))
+check('PC start menu css', html.includes('#startOv .dshHomeMenu #startBtn') && html.includes('#startOv .dshHomeKeys'))
+check('PC settlement dialog css', html.includes('#endOv .dshEndCard') && html.includes('grid-template-columns:minmax(0,1.15fr) minmax(0,.85fr)'))
+check('PC intermission columns', html.includes('class="imSection imScore"') && html.includes('class="imSection imEventsBlock"') && html.includes('class="imSection imBuild"'))
+check('PC recap eight rounds', html.includes('#matchRecapOv #mrRounds { grid-template-columns:repeat(8, 1fr); }'))
+check('PC keyboard hint and Enter binding', html.includes('dshHomeKeys') && html.includes("event.key !== 'Enter'"))
+
+// The injected wrappers must keep the original child order so display:contents
+// reproduces the phone layout exactly on narrow screens.
+let cursor = -1
+const ordered = ['class="dshHome"', 'class="dshHomeMain"', 'id="gameIcon"', 'class="dshHomeMenu"', 'id="dshHomeSeason"', 'id="startBtn"', 'id="dshHomeKeys"']
+  .every(needle => {
+    const at = html.indexOf(needle, cursor + 1)
+    if (at <= cursor) return false
+    cursor = at
+    return true
+  })
+check('start wrappers preserve child order', ordered)
+
+const endAt = html.indexOf('id="endOv"')
+const endOrder = ['class="dshEndCard"', 'class="dshEndMain"', 'id="endTitle"', 'class="dshEndSide"', 'id="endSeason"', 'class="endActions"', 'id="backBtn"']
+  .map(needle => html.indexOf(needle, endAt))
+check('settlement wrappers preserve child order', endOrder.every((at, index) => at > endAt && (index === 0 || at > endOrder[index - 1])))
 
 // Every inline script must still parse; this catches syntax damage from the injection.
 const scripts = [...html.matchAll(/<script>([\s\S]*?)<\/script>/g)].map(match => match[1])
