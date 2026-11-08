@@ -1,5 +1,5 @@
 import { useCallback, useLayoutEffect, useRef, useState, useSyncExternalStore } from 'react'
-import type { ComponentType, ReactNode } from 'react'
+import type { ComponentType, CSSProperties, KeyboardEvent as ReactKeyboardEvent, PointerEvent as ReactPointerEvent, ReactNode } from 'react'
 import {
   ArrowDownRight, ArrowLeft, ArrowUpRight, ChartNoAxesCombined, ExternalLink, MessageSquareText,
   PanelRightClose, Pause, Play,
@@ -8,6 +8,7 @@ import {
   OriginalGame, stocks, type GameControl, type GameSnapshot, type Point, type RestReview,
   type RunSnapshot, type SettledTrade, type Track, type TrackEvent, type TradePoint,
 } from './original-game.tsx'
+import { chatWidthLimit, chatWidthMax, chatWidthMin, clampChatWidth, readChatWidth, writeChatWidth } from './chat-width.ts'
 import { Badge } from './ui/badge.tsx'
 import { Button } from './ui/button.tsx'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from './ui/card.tsx'
@@ -278,6 +279,12 @@ export function apply(ctx: ClientContext) {
     const [hidden, setHidden] = useState(document.hidden)
     const [topic, setTopic] = useState<Topic>()
     const [notice, setNotice] = useState('')
+    const [chatWidth, setChatWidth] = useState<number | null>(() => readChatWidth())
+    const [bodyWidth, setBodyWidth] = useState(0)
+    const [resizing, setResizing] = useState(false)
+    const bodyRef = useRef<HTMLDivElement>(null)
+    const chatWidthRef = useRef(chatWidth)
+    const lastTapRef = useRef(0)
     const chatOpen = chatPreference ?? !narrow
     const chatSession = reference?.sessionId === sessionId ? reference : undefined
     const frame = useRef<HTMLIFrameElement>(null)
@@ -289,6 +296,11 @@ export function apply(ctx: ClientContext) {
     const homeSeason = !run && 'season' in gameInfo ? gameInfo.season : undefined
     const homeRound = homeSeason ? (homeSeason.matchDone ? homeSeason.matchLen : Math.min(homeSeason.round + 1, homeSeason.matchLen)) : 0
     const paused = manualPause || hidden || (narrow && chatOpen)
+    const chatWidthCap = bodyWidth > 0 ? chatWidthLimit(bodyWidth) : chatWidthMax
+    const effectiveChatWidth = chatWidth === null || bodyWidth === 0 ? null : clampChatWidth(chatWidth, bodyWidth)
+    const defaultChatWidth = bodyWidth > 0 ? Math.round(Math.min(400, Math.max(300, bodyWidth * 0.24))) : 360
+    const bodyStyle = effectiveChatWidth === null
+      ? undefined : { '--stonk-chat-width': `${effectiveChatWidth}px` } as CSSProperties
 
     const receiveSnapshot = useCallback((value: GameSnapshot) => {
       const previous = latest.current
@@ -326,6 +338,21 @@ export function apply(ctx: ClientContext) {
       return () => document.removeEventListener('visibilitychange', sync)
     }, [])
 
+    // Track the panel width so a saved split can be re-clamped when the window shrinks.
+    useLayoutEffect(() => {
+      const body = bodyRef.current
+      if (!body) return
+      const sync = () => setBodyWidth(body.getBoundingClientRect().width)
+      sync()
+      if (typeof ResizeObserver === 'undefined') {
+        window.addEventListener('resize', sync)
+        return () => window.removeEventListener('resize', sync)
+      }
+      const observer = new ResizeObserver(sync)
+      observer.observe(body)
+      return () => observer.disconnect()
+    }, [])
+
     function toggleChat() {
       if (narrow && !chatOpen && gameInfo.phase === 'play') setManualPause(true)
       setChatPreference(!chatOpen)
@@ -336,6 +363,94 @@ export function apply(ctx: ClientContext) {
           if (topic?.kind === 'review') game.current?.focusReview()
         })
       }
+    }
+
+    function applyChatWidth(value: number | null) {
+      chatWidthRef.current = value
+      setChatWidth(value)
+    }
+
+    function currentChatWidth() {
+      if (effectiveChatWidth !== null) return effectiveChatWidth
+      const pane = document.getElementById('stonk-chat-pane')
+      return Math.round(pane?.getBoundingClientRect().width || defaultChatWidth)
+    }
+
+    function beginResize(event: ReactPointerEvent<HTMLDivElement>) {
+      if (event.button !== 0) return
+      const body = bodyRef.current
+      const pane = document.getElementById('stonk-chat-pane')
+      if (!body || !pane) return
+      event.preventDefault()
+      const handle = event.currentTarget
+      const pointerId = event.pointerId
+      const startX = event.clientX
+      const startWidth = pane.getBoundingClientRect().width
+      const containerWidth = body.getBoundingClientRect().width
+      let moved = false
+      let lastClientX = startX
+      let frame = 0
+      try { handle.setPointerCapture(pointerId) } catch { /* fall back to window listeners */ }
+      setResizing(true)
+      const apply = (clientX: number) => {
+        applyChatWidth(clampChatWidth(startWidth + startX - clientX, containerWidth))
+      }
+      // Coalesce moves into one React update per frame; the embedded chat is heavy.
+      const move = (moveEvent: PointerEvent) => {
+        lastClientX = moveEvent.clientX
+        if (Math.abs(moveEvent.clientX - startX) > 2) moved = true
+        if (frame) return
+        frame = requestAnimationFrame(() => { frame = 0; apply(lastClientX) })
+      }
+      const finish = () => {
+        window.removeEventListener('pointermove', move)
+        window.removeEventListener('pointerup', finish)
+        window.removeEventListener('pointercancel', finish)
+        if (frame) { cancelAnimationFrame(frame); frame = 0; apply(lastClientX) }
+        try { handle.releasePointerCapture(pointerId) } catch { /* capture may already be gone */ }
+        setResizing(false)
+        // A double-click cancels the pointer's compatibility mouse events, so
+        // detect two taps of the handle here instead of relying on dblclick.
+        if (!moved) {
+          const now = performance.now()
+          if (now - lastTapRef.current < 320) {
+            lastTapRef.current = 0
+            resetChatWidth()
+            return
+          }
+          lastTapRef.current = now
+        }
+        writeChatWidth(chatWidthRef.current)
+      }
+      window.addEventListener('pointermove', move)
+      window.addEventListener('pointerup', finish)
+      window.addEventListener('pointercancel', finish)
+    }
+
+    function nudgeChatWidth(delta: number) {
+      const body = bodyRef.current
+      if (!body) return
+      applyChatWidth(clampChatWidth(currentChatWidth() + delta, body.getBoundingClientRect().width))
+      writeChatWidth(chatWidthRef.current)
+    }
+
+    function jumpChatWidth(edge: 'min' | 'max') {
+      const body = bodyRef.current
+      if (!body) return
+      applyChatWidth(edge === 'min' ? chatWidthMin : chatWidthLimit(body.getBoundingClientRect().width))
+      writeChatWidth(chatWidthRef.current)
+    }
+
+    function resetChatWidth() {
+      applyChatWidth(null)
+      writeChatWidth(null)
+    }
+
+    function onSplitterKeyDown(event: ReactKeyboardEvent<HTMLDivElement>) {
+      if (event.key === 'ArrowLeft') { event.preventDefault(); nudgeChatWidth(24) }
+      else if (event.key === 'ArrowRight') { event.preventDefault(); nudgeChatWidth(-24) }
+      else if (event.key === 'Home') { event.preventDefault(); jumpChatWidth('min') }
+      else if (event.key === 'End') { event.preventDefault(); jumpChatWidth('max') }
     }
 
     function resume() {
@@ -398,7 +513,8 @@ export function apply(ctx: ClientContext) {
           {chatOpen ? (narrow ? (topic?.kind === 'review' ? '返回休整室' : '返回赛道') : '收起对话') : '打开 DSH 对话'}
         </Button>
       </div>
-      <div className="stonk-workspace-body" data-chat-open={chatOpen}>
+      <div className="stonk-workspace-body" ref={bodyRef} data-chat-open={chatOpen}
+        data-resizing={resizing || undefined} style={bodyStyle}>
         <section className="stonk-track" aria-label="Stonk Rider 赛道" data-stonk-ui data-dsh-stonk-rider>
           <header className="stonk-track-header">
             <div>
@@ -446,6 +562,23 @@ export function apply(ctx: ClientContext) {
             <p role="status" className="stonk-error">{notice}</p>
           </section>
         </section>
+        {chatOpen && !narrow && <div
+          className="stonk-splitter"
+          role="separator"
+          aria-orientation="vertical"
+          aria-controls="stonk-chat-pane"
+          aria-label="调整会话栏宽度"
+          aria-valuemin={chatWidthMin}
+          aria-valuemax={chatWidthCap}
+          aria-valuenow={effectiveChatWidth ?? defaultChatWidth}
+          aria-keyshortcuts="ArrowLeft ArrowRight Home End"
+          tabIndex={0}
+          title="拖动调整会话栏宽度，双击恢复默认"
+          data-active={resizing || undefined}
+          onPointerDown={beginResize}
+          onKeyDown={onSplitterKeyDown}
+          onDoubleClick={resetChatWidth}
+        />}
         <aside id="stonk-chat-pane" aria-label="DSH 对话" hidden={!chatOpen}>
           <div className="stonk-chat-chrome" data-stonk-ui>
             <div className="stonk-chat-heading">

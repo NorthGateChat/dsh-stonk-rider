@@ -52,7 +52,48 @@ body[data-ds-dark-theme] .stonk-workspace {
   grid-template-columns: minmax(0, 1fr);
   min-height: 0;
 }
-.stonk-workspace-body[data-chat-open='true'] { grid-template-columns: minmax(0, 1fr) clamp(300px, 24vw, 400px); }
+.stonk-workspace-body[data-chat-open='true'] {
+  grid-template-columns: minmax(0, 1fr) 7px var(--stonk-chat-width, clamp(300px, 24vw, 400px));
+}
+
+.stonk-splitter {
+  position: relative;
+  width: 7px;
+  cursor: col-resize;
+  touch-action: none;
+  background: transparent;
+}
+.stonk-splitter::before {
+  content: "";
+  position: absolute;
+  inset: 0 auto 0 50%;
+  width: 1px;
+  transform: translateX(-50%);
+  background: var(--stonk-border);
+  transition: width .12s, background-color .12s;
+}
+.stonk-splitter::after {
+  content: "";
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  width: 3px;
+  height: 26px;
+  transform: translate(-50%, -50%);
+  border-radius: 3px;
+  background: radial-gradient(circle, var(--stonk-secondary) 1.2px, transparent 1.4px) center / 3px 8px repeat-y;
+  opacity: .35;
+  transition: opacity .12s;
+}
+.stonk-splitter:hover { background: color-mix(in srgb, var(--stonk-primary) 7%, transparent); }
+.stonk-splitter:hover::before, .stonk-splitter[data-active='true']::before, .stonk-splitter:focus-visible::before {
+  width: 2px;
+  background: var(--stonk-primary);
+}
+.stonk-splitter:hover::after, .stonk-splitter[data-active='true']::after, .stonk-splitter:focus-visible::after { opacity: .85; }
+.stonk-splitter:focus-visible { outline: none; }
+.stonk-workspace-body[data-resizing='true'] { cursor: col-resize; user-select: none; }
+.stonk-workspace-body[data-resizing='true'] .stonk-original-frame { pointer-events: none; }
 
 .stonk-track {
   box-sizing: border-box;
@@ -129,7 +170,7 @@ body[data-ds-dark-theme] .stonk-workspace {
   flex-direction: column;
   min-width: 0;
   min-height: 0;
-  border-inline-start: 1px solid var(--stonk-border);
+  border-inline-start: 0;
 }
 #stonk-chat-pane[hidden] { display: none; }
 .stonk-chat-chrome { flex: 0 0 auto; padding: 9px 14px 0; }
@@ -156,6 +197,7 @@ body[data-ds-dark-theme] .stonk-workspace {
 @media (max-width: 900px) {
   .stonk-workspace-body[data-chat-open='true'] { grid-template-columns: minmax(0, 1fr); }
   .stonk-workspace-body[data-chat-open='true'] > [data-dsh-stonk-rider] { display: none; }
+  .stonk-splitter { display: none; }
   #stonk-chat-pane { border-inline-start: 0; }
 }
 @media (max-width: 520px) {
