@@ -1,6 +1,6 @@
 {
   "name": "dsh-stonk-rider",
-  "version": "0.8.0",
+  "version": "0.9.1",
   "private": true,
   "description": "Stonk Rider 1.0.73 with contextual conversations for DeepSeek Harness Web",
   "type": "module",
@@ -21,7 +21,7 @@
       ]
     }
   },
-  "files": ["lib", "src", "scripts", "cordis.patch.yml"],
+  "files": ["lib", "cordis.patch.yml", "README.md"],
   "scripts": { "build": "node scripts/build.mjs", "test": "node scripts/test-home.mjs && node scripts/test-chat-width.mjs" },
   "devDependencies": {
     "@radix-ui/react-slot": "1.2.3",

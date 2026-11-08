@@ -47,6 +47,15 @@ check('PC settlement dialog css', html.includes('#endOv .dshEndCard') && html.in
 check('PC intermission columns', html.includes('class="imSection imScore"') && html.includes('class="imSection imEventsBlock"') && html.includes('class="imSection imBuild"'))
 check('PC recap eight rounds', html.includes('#matchRecapOv #mrRounds { grid-template-columns:repeat(8, 1fr); }'))
 check('PC keyboard hint and Enter binding', html.includes('dshHomeKeys') && html.includes("event.key !== 'Enter'"))
+check('season cash-out button', html.includes('id="dshCashOut"') && html.includes('收手退赛 · 封存本金'))
+check('completed season restart guard', html.includes('dshSettleCompletedSeason();') && html.includes('function dshSettleCompletedSeason'))
+check('season schema version', html.includes('getSeasonRaw') && html.includes('version: 2'))
+check('library rows are keyboard reachable', html.includes("row.setAttribute('role','button')") && html.includes('row.onkeydown'))
+check('PC help and library css', html.includes('#guide #guideCard { width:min(720px') && html.includes('#libOv #libList { width:min(720px'))
+check('PC touch controls hidden', html.includes('(pointer:fine)') && html.includes('body #ctrl { display:none; }'))
+check('reduced motion css', html.includes('prefers-reduced-motion'))
+check('P and Escape host keys', html.includes('pause-request') && html.includes("event.key !== 'Escape'"))
+check('adaptive reporting loop', html.includes('dshScheduleReport') && !html.includes('setInterval(dshReport, 160)'))
 
 // The injected wrappers must keep the original child order so display:contents
 // reproduces the phone layout exactly on narrow screens.
@@ -72,10 +81,33 @@ scripts.forEach((script, index) => {
   catch (error) { check(`script #${index} parses`, false, String(error)) }
 })
 
+function extractFunction(source, signature) {
+  const start = source.indexOf(signature)
+  if (start < 0) return ''
+  let depth = 0
+  let quote = ''
+  let escaped = false
+  for (let index = source.indexOf('{', start); index < source.length; index++) {
+    const char = source[index]
+    if (quote) {
+      if (escaped) escaped = false
+      else if (char === '\\') escaped = true
+      else if (char === quote) quote = ''
+      continue
+    }
+    if (char === "'" || char === '"' || char === '`') { quote = char; continue }
+    if (char === '{') depth++
+    else if (char === '}') {
+      depth--
+      if (depth === 0) return source.slice(start, index + 1)
+    }
+  }
+  return ''
+}
+
 const start = html.indexOf('function dshHomeSummary(){')
-const end = html.indexOf('\n}\n;(() => {', start)
-check('dshHomeSummary extracted', start >= 0 && end > start)
-const summary = html.slice(start, end + 2)
+const summary = extractFunction(html, 'function dshHomeSummary(){')
+check('dshHomeSummary extracted', start >= 0 && summary.length > 0)
 
 function render(season) {
   const pill = {
@@ -124,7 +156,7 @@ check('done season card', done.pill.className === 'show done'
   && done.pill.innerHTML.includes('$5,100'), done.pill.innerHTML)
 check('done progress segments', count(done.pill.innerHTML, 'dshHsSeg done') === 8
   && count(done.pill.innerHTML, 'dshHsSeg now') === 0, done.pill.innerHTML)
-check('done CTA', done.sub.textContent === '赛程已达 · 再跑一局', done.sub.textContent)
+check('done CTA', done.sub.textContent === '赛程已达 · 出发开新赛程', done.sub.textContent)
 
 console.log(failures ? `\n${failures} failure(s)` : '\nall checks passed')
 process.exitCode = failures ? 1 : 0

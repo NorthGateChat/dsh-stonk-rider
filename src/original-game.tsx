@@ -87,9 +87,10 @@ function frameDocument(channel: string) {
   </script>`)
 }
 
-export function OriginalGame({ frame, control, paused, onSnapshot, onReview }: {
+export function OriginalGame({ frame, control, paused, onSnapshot, onReview, onTogglePause, onFocus, onBlur }: {
   frame: RefObject<HTMLIFrameElement>; control: RefObject<GameControl>; paused: boolean; onSnapshot(value: GameSnapshot): void
   onReview(review: RestReview): string | undefined
+  onTogglePause?(): void; onFocus?(): void; onBlur?(): void
 }) {
   const [{ channel, srcDoc }] = useState(() => {
     const id = crypto.randomUUID()
@@ -99,8 +100,10 @@ export function OriginalGame({ frame, control, paused, onSnapshot, onReview }: {
   const request = useRef<{ id: number; promise: ReturnType<GameControl['snapshot']>; finish(value?: GameSnapshot): void }>()
   const sequence = useRef(0)
   const reviewHandler = useRef(onReview)
+  const pauseHandler = useRef(onTogglePause)
 
   useLayoutEffect(() => { reviewHandler.current = onReview }, [onReview])
+  useLayoutEffect(() => { pauseHandler.current = onTogglePause }, [onTogglePause])
 
   useImperativeHandle(control, () => ({
     focusReview() {
@@ -130,6 +133,7 @@ export function OriginalGame({ frame, control, paused, onSnapshot, onReview }: {
     function onMessage(event: MessageEvent) {
       if (event.source !== frame.current?.contentWindow || event.origin !== 'null' || event.data?.channel !== channel) return
       const { type, payload, requestId } = event.data
+      if (type === 'pause-request') pauseHandler.current?.()
       if (type === 'state' && payload) {
         const phase = payload.phase
         if (phase === 'home' || phase === 'draw') {
@@ -170,5 +174,6 @@ export function OriginalGame({ frame, control, paused, onSnapshot, onReview }: {
   }, [frame, channel, paused, ready])
 
   return <iframe ref={frame} className="stonk-original-frame" title="K线狂飙原版游戏"
-    sandbox="allow-scripts" referrerPolicy="no-referrer" srcDoc={srcDoc} />
+    sandbox="allow-scripts" referrerPolicy="no-referrer" srcDoc={srcDoc}
+    onFocus={onFocus} onBlur={onBlur} />
 }

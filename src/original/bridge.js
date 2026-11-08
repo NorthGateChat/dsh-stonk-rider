@@ -68,5 +68,33 @@ addEventListener('message', event => {
   if (event.data.type === 'focus-review' && dshIntermissionOpen()) dshReviewButton?.focus({ preventScroll: true });
 });
 addEventListener('blur', () => { gasOn = false; });
-setInterval(dshReport, 160);
-dshReport();
+// PC keys: P asks the host to pause/resume, Escape backs out of help/library/share.
+addEventListener('keydown', event => {
+  if (event.repeat || event.metaKey || event.ctrlKey || event.altKey) return;
+  const active = document.activeElement;
+  if (active && (active.tagName === 'INPUT' || active.tagName === 'TEXTAREA' || active.isContentEditable)) return;
+  if (event.key === 'p' || event.key === 'P') {
+    if (state !== 'play') return;
+    event.preventDefault();
+    dshPost('pause-request');
+    return;
+  }
+  if (event.key !== 'Escape') return;
+  const guide = document.getElementById('guide');
+  if (guide && guide.classList.contains('show')) { closeGuide(); return; }
+  const lib = document.getElementById('libOv');
+  if (lib && !lib.classList.contains('hide')) { closeLibrary(); return; }
+  const share = document.getElementById('shareOv');
+  if (share && !share.classList.contains('hide')) { document.getElementById('shareCloseBtn')?.click(); return; }
+  const lb = document.getElementById('lbOv');
+  if (lb && !lb.classList.contains('hide')) { document.getElementById('lbBackBtn')?.click(); }
+});
+// Report less often outside live play; the parent only needs phase/season changes.
+let dshReportTimer = 0;
+function dshScheduleReport(){
+  if (dshReportTimer) clearTimeout(dshReportTimer);
+  dshReport();
+  const wait = document.hidden ? 1200 : state === 'play' && !dshPaused ? 180 : 600;
+  dshReportTimer = setTimeout(dshScheduleReport, wait);
+}
+dshScheduleReport();

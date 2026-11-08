@@ -5,7 +5,7 @@ const dir = new URL('../src/original/', import.meta.url)
 export async function loadOriginalGame() {
   const [source, icon, bgm, bridge, review, reviewStyle] = await Promise.all([
     readFile(new URL('index.html', dir), 'utf8'),
-    readFile(new URL('icon.png', dir), 'base64'),
+    readFile(new URL('icon.webp', dir), 'base64'),
     readFile(new URL('bgm.mp3', dir), 'base64'),
     readFile(new URL('bridge.js', dir), 'utf8'),
     readFile(new URL('review.js', dir), 'utf8'),
@@ -218,9 +218,47 @@ export async function loadOriginalGame() {
   #startOv .dshHomeMenu #startBtn { padding:12px 24px; font-size:15px; }
   #startOv .dshHomeKeys { margin-top:8px; font-size:10px; }
 }
+/* Season cash-out, keyboard focus and the PC help/library overlays. */
+.imFoot { flex-wrap:wrap; }
+#dshCashOut { white-space:nowrap; }
+#dshCashOut[data-armed='true'] { border-color:#e06d6d; color:#e06d6d; }
+.libRow:focus-visible { outline:2px solid var(--acc); outline-offset:2px; }
+/* PC: help, library and share overlays stop behaving like phone sheets. */
+@media (min-width:720px) and (min-height:380px){
+  #guide #guideCard { width:min(720px, 92vw); padding:24px 28px; }
+  #guide #guideCard h2 { font-size:24px; }
+  #guide #guideCard .gd { font-size:13px; line-height:1.7; }
+  #guide #guideClose { display:block; width:auto; min-width:220px; margin:18px auto 0; }
+  #libOv h1 { font-size:32px; }
+  #libOv p { max-width:560px; }
+  #libOv #libList { width:min(720px, 90vw); max-height:58vh; display:grid; grid-template-columns:repeat(2, minmax(0, 1fr)); align-content:start; }
+  #shareOv canvas { width:min(46vw, 360px) !important; }
+  #shareOv h1 { font-size:24px; }
+  #rotate { display:none !important; }
+}
+@media (min-width:720px) and (min-height:380px) and (pointer:fine){
+  body #ctrl { display:none; }
+}
+@media (min-width:720px) and (min-height:380px) and (max-width:820px){
+  #intermissionOv .imFoot .dshImNext { display:none; }
+}
+@media (min-width:720px) and (min-height:560px){
+  body #hud .big { font-size:30px; }
+  body #priceBanner .pbPrice { font-size:36px; }
+  body #priceBanner .pbChg { font-size:21px; }
+  body #posBox .pbPnl { font-size:22px; }
+}
+@media (prefers-reduced-motion: reduce){
+  *, *::before, *::after {
+    animation-duration:.001ms !important;
+    animation-iteration-count:1 !important;
+    transition-duration:.001ms !important;
+    scroll-behavior:auto !important;
+  }
+}
 </style>`)
   replace('<script src="https://s1.hdslb.com/bfs/seed/toy/app/sdk/toy-sdk.js" defer></script>', '')
-  replace('src="icon.png"', `src="data:image/png;base64,${icon}"`)
+  replace('src="icon.png"', `src="data:image/webp;base64,${icon}"`)
   // PC layout wrappers: display:contents keeps the original phone column untouched;
   // the wide-screen media query turns the same children into a two-column hero.
   replace('    <div id="gameIcon" aria-hidden="true">',
@@ -254,13 +292,24 @@ export async function loadOriginalGame() {
   replace("bgmEl.src='bgm.mp3'; bgmEl.loop=true; bgmEl.preload='auto'; bgmEl.crossOrigin='anonymous';",
     `bgmEl.src='data:audio/mpeg;base64,${bgm}'; bgmEl.loop=true; bgmEl.preload='auto';`)
   document = document.replaceAll('localStorage', 'dshStorage')
+  // Stamp saved seasons with a schema version and keep older saves readable; the
+  // wrapper in the bootstrap below turns missing versions into the current one.
+  replace("function saveSeason(s){ dshStorage.setItem('stonk_season', JSON.stringify(s)); }",
+    "function saveSeason(s){ dshStorage.setItem('stonk_season', JSON.stringify({ ...s, version: 2 })); }")
+  replace('function getSeason(){', 'function getSeasonRaw(){')
+  // PC: list rows were mouse-only. Make them reachable and activatable by keyboard.
+  replace('    row.onclick=()=>{ document.getElementById(\'libOv\').classList.add(\'hide\'); drawCard(k); };  // 重开指定股(走抽卡仪式但锁定该股)',
+    `    row.onclick=()=>{ document.getElementById('libOv').classList.add('hide'); drawCard(k); };  // 重开指定股(走抽卡仪式但锁定该股)
+    row.setAttribute('role','button');
+    row.tabIndex = 0;
+    row.onkeydown = event => { if(event.key!=='Enter' && event.key!==' ') return; event.preventDefault(); row.click(); };`)
   replace('function resize(){', 'function resize(){\n  if (!C.clientWidth || !C.clientHeight) return;')
   replace("unit:(d.cls==='港互'?'HK$':(d.sym||'').match(/^(SH|SZ)/)?'¥':'$'),",
     "unit:(d.cls==='港互'?'HK$':d.cls==='A股'||/^(SH|SZ)/.test(d.sym||'')?'¥':'$'),")
   replace('function step(){', 'function step(){\n  if(dshPaused) return;')
   replace('function startBGM(){', 'function startBGM(){\n  if(dshPaused) return;')
   replace("addEventListener('keydown',e=>{", "addEventListener('keydown',e=>{\n  if(dshPaused) return;")
-  replace('function startGame(){', 'function startGame(){\n  dshActiveKey = trackKey;')
+  replace('function startGame(){', 'function startGame(){\n  dshSettleCompletedSeason();\n  dshActiveKey = trackKey;')
   replace('function reset(){', 'function reset(){\n  dshResetReview();')
   replace("closePosition(false, true, 'flip'); openPosition(dir);", `const reversedFrom = dshActiveTrade?.id;
   closePosition(false, true, 'flip'); openPosition(dir, reversedFrom);`)
@@ -339,9 +388,10 @@ export async function loadOriginalGame() {
       <button id="imSkipBtn" class="imSkipBtn" type="button">跳过 · 保留原 Build</button>`,
     `    <div class="imFoot">
       <p id="dshImNext" class="dshImNext"></p>
+      <button id="dshCashOut" class="imSkipBtn" type="button">收手退赛 · 封存本金</button>
       <button id="imSkipBtn" class="imSkipBtn" type="button">跳过 · 保留原 Build</button>`)
   replace("  document.getElementById('imRound').textContent = `回合 ${seasonInfo.round}/${ctx.matchLen}`;",
-    "  document.getElementById('imRound').textContent = `回合 ${seasonInfo.round}/${ctx.matchLen}`;\n  const dshImNext = document.getElementById('dshImNext');\n  if(dshImNext) dshImNext.textContent = '选卡或跳过后，直接进入第 ' + ctx.nextRound + '/' + ctx.matchLen + ' 回合';")
+    "  document.getElementById('imRound').textContent = `回合 ${seasonInfo.round}/${ctx.matchLen}`;\n  const dshImNext = document.getElementById('dshImNext');\n  if(dshImNext) dshImNext.textContent = '选卡或跳过后，直接进入第 ' + ctx.nextRound + '/' + ctx.matchLen + ' 回合';\n  const dshCash = document.getElementById('dshCashOut');\n  if(dshCash){ dshCash.dataset.armed = ''; dshCash.textContent = '收手退赛 · 封存本金'; }")
   replace(`  // 进入下一回合:直接调用 startGame(不 goHome,不出结算面板)
   // 保留 trackKey 不变,让玩家在同一支股票继续冲下一段? 还是换一支? —— 沿用旧路径:换一支股票(在 startOv 里选)
   // 沿用旧行为:回选股页,玩家自己选下一场 —— 保持策略选择空间
@@ -392,7 +442,7 @@ function dshHomeSummary(){
     if(s.matchDone){
       tag = '赛程达成'; roundText = len + '/' + len + ' 回合'; done = len; doneSeason = true;
       row = '本金 <b>' + money(cash) + '</b> · 峰值 <b>' + money(peak) + '</b>';
-      subtitle = '赛程已达 · 再跑一局';
+      subtitle = '赛程已达 · 出发开新赛程';
     } else {
       const round = Math.min(s.round + 1, len);
       tag = '赛程进行中'; roundText = '第 ' + round + '/' + len + ' 回合'; done = s.round;
@@ -412,6 +462,31 @@ function dshHomeSummary(){
   el.setAttribute('aria-label', tag + ' ' + roundText);
   if(home) home.classList.add('has-season');
   if(sub) sub.textContent = subtitle;
+}
+// Season schema wrapper: old saves predate the version field and are upgraded in
+// memory; the next save stamps version 2.
+function getSeason(){
+  const s = getSeasonRaw();
+  if(!s) return null;
+  if(typeof s.version !== 'number' || s.version < 2) s.version = 2;
+  return s;
+}
+// A completed season must not be resumed. Archive its honor values, then let the
+// next 出发 start a clean season at START_CASH.
+function dshSettleCompletedSeason(){
+  const s = getSeason();
+  if(!s || !s.matchDone) return;
+  const bestSeason = +(dshStorage.getItem('stonk_best_season') || 0);
+  if(s.peak > bestSeason) dshStorage.setItem('stonk_best_season', s.peak);
+  const bestRound = +(dshStorage.getItem('stonk_best_season_round') || 0);
+  if(s.round > bestRound) dshStorage.setItem('stonk_best_season_round', s.round);
+  clearSeason();
+}
+function dshCashOutSeason(){
+  window._intermissionCtx = null;
+  document.getElementById('intermissionOv').classList.remove('show');
+  clearSeason();
+  goHome();
 }
 ;(() => {
   // Mac keyboards label the space bar "Space"; keep the hints consistent with the platform.
@@ -434,6 +509,27 @@ function dshHomeSummary(){
     event.preventDefault();
     document.getElementById('startBtn').click();
   });
+  // 收手退赛 needs an explicit second click; the round is otherwise lost silently.
+  const cashBtn = document.getElementById('dshCashOut');
+  if(cashBtn){
+    let armedUntil = 0;
+    cashBtn.addEventListener('click', () => {
+      const now = performance.now();
+      if(now > armedUntil){
+        armedUntil = now + 2600;
+        cashBtn.dataset.armed = 'true';
+        const s = getSeason();
+        cashBtn.textContent = s ? '再点一次 · $' + Math.floor(s.cash).toLocaleString() + ' 不保留' : '再点一次确认退赛';
+        setTimeout(() => {
+          if(performance.now() < armedUntil) return;
+          cashBtn.dataset.armed = '';
+          cashBtn.textContent = '收手退赛 · 封存本金';
+        }, 2700);
+        return;
+      }
+      dshCashOutSeason();
+    });
+  }
 })();
 dshHomeSummary();
 </script>

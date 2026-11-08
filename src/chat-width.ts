@@ -1,10 +1,11 @@
 // Width rules for the split between the track and the embedded DSH conversation.
 // Kept free of React/DOM so the arithmetic is unit-testable in plain Node.
 export const chatWidthKey = 'dsh-stonk-rider:chat-width'
-export const chatWidthMin = 260
+export const chatOpenKey = 'dsh-stonk-rider:chat-open'
+export const chatWidthMin = 300
 export const chatWidthMax = 760
 export const trackMinWidth = 380
-export const splitterWidth = 7
+export const splitterWidth = 9
 
 type ReadStorage = Pick<Storage, 'getItem'>
 type WriteStorage = Pick<Storage, 'setItem' | 'removeItem'>
@@ -35,4 +36,17 @@ export function writeChatWidth(value: number | null, storage?: WriteStorage) {
     if (value === null) target.removeItem(chatWidthKey)
     else target.setItem(chatWidthKey, String(Math.round(value)))
   } catch { /* storage restrictions do not block resizing */ }
+}
+
+export function readChatOpen(storage?: ReadStorage): boolean | null {
+  try {
+    const raw = (storage ?? globalThis.localStorage)?.getItem(chatOpenKey)
+    return raw === '1' ? true : raw === '0' ? false : null
+  } catch { return null }
+}
+
+export function writeChatOpen(value: boolean, storage?: WriteStorage) {
+  try {
+    (storage ?? globalThis.localStorage).setItem(chatOpenKey, value ? '1' : '0')
+  } catch { /* storage restrictions do not block the toggle */ }
 }

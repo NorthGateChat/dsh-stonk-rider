@@ -1,4 +1,4 @@
-import { useCallback, useLayoutEffect, useRef, useState, useSyncExternalStore } from 'react'
+import { useCallback, useEffect, useLayoutEffect, useRef, useState, useSyncExternalStore } from 'react'
 import type { ComponentType, CSSProperties, KeyboardEvent as ReactKeyboardEvent, PointerEvent as ReactPointerEvent, ReactNode } from 'react'
 import {
   ArrowDownRight, ArrowLeft, ArrowUpRight, ChartNoAxesCombined, ExternalLink, MessageSquareText,
@@ -8,7 +8,7 @@ import {
   OriginalGame, stocks, type GameControl, type GameSnapshot, type Point, type RestReview,
   type RunSnapshot, type SettledTrade, type Track, type TrackEvent, type TradePoint,
 } from './original-game.tsx'
-import { chatWidthLimit, chatWidthMax, chatWidthMin, clampChatWidth, readChatWidth, writeChatWidth } from './chat-width.ts'
+import { chatWidthLimit, chatWidthMax, chatWidthMin, clampChatWidth, readChatOpen, readChatWidth, writeChatOpen, writeChatWidth } from './chat-width.ts'
 import { Badge } from './ui/badge.tsx'
 import { Button } from './ui/button.tsx'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from './ui/card.tsx'
@@ -273,10 +273,11 @@ export function apply(ctx: ClientContext) {
     const sessionId = useSyncExternalStore(subscribeSessions, mainSessionId)
     const narrow = useSyncExternalStore(subscribeWidth, () => narrowScreen.matches)
     const [reference, setReference] = useState<SessionReference>()
-    const [chatPreference, setChatPreference] = useState<boolean>()
+    const [chatPreference, setChatPreference] = useState<boolean | undefined>(() => readChatOpen() ?? undefined)
     const [gameInfo, setGameInfo] = useState<GameSnapshot>({ phase: 'home' })
     const [manualPause, setManualPause] = useState(false)
     const [hidden, setHidden] = useState(document.hidden)
+    const [frameFocused, setFrameFocused] = useState(false)
     const [topic, setTopic] = useState<Topic>()
     const [notice, setNotice] = useState('')
     const [chatWidth, setChatWidth] = useState<number | null>(() => readChatWidth())
@@ -353,9 +354,35 @@ export function apply(ctx: ClientContext) {
       return () => observer.disconnect()
     }, [])
 
+    // P toggles the presentation pause while riding, without stealing chat input keys.
+    useEffect(() => {
+      function onKey(event: KeyboardEvent) {
+        if (event.key.toLowerCase() !== 'p' || event.repeat || event.metaKey || event.ctrlKey || event.altKey) return
+        const target = event.target as HTMLElement | null
+        if (target?.closest('input, textarea, [contenteditable="true"], [contenteditable=""]')) return
+        if (gameInfo.phase !== 'play') return
+        event.preventDefault()
+        setManualPause(value => !value)
+      }
+      window.addEventListener('keydown', onKey)
+      return () => window.removeEventListener('keydown', onKey)
+    }, [gameInfo.phase])
+
+    function setChatOpen(next: boolean) {
+      setChatPreference(next)
+      writeChatOpen(next)
+    }
+
+    function focusGame() {
+      const node = frame.current
+      if (!node) return
+      node.focus({ preventScroll: true })
+      node.contentWindow?.focus()
+    }
+
     function toggleChat() {
       if (narrow && !chatOpen && gameInfo.phase === 'play') setManualPause(true)
-      setChatPreference(!chatOpen)
+      setChatOpen(!chatOpen)
       if (narrow && chatOpen) {
         cancelAnimationFrame(focusFrame.current)
         focusFrame.current = requestAnimationFrame(() => {
@@ -537,7 +564,12 @@ export function apply(ctx: ClientContext) {
             </Button>}
           </header>
           <div className="stonk-stage">
-            <OriginalGame frame={frame} control={game} paused={paused} onSnapshot={receiveSnapshot} onReview={askRestReview} />
+            <OriginalGame frame={frame} control={game} paused={paused} onSnapshot={receiveSnapshot} onReview={askRestReview}
+              onTogglePause={() => { if (gameInfo.phase === 'play') setManualPause(value => !value) }}
+              onFocus={() => setFrameFocused(true)} onBlur={() => setFrameFocused(false)} />
+            {!narrow && !frameFocused && !manualPause && <button type="button" className="stonk-focus-hint" onClick={focusGame}>
+              点击画面启用键盘
+            </button>}
             {manualPause && gameInfo.phase === 'play' && <div className="stonk-paused">
               <Card className="stonk-paused-card">
                 <CardTitle>骑行已暂停</CardTitle>
@@ -546,7 +578,7 @@ export function apply(ctx: ClientContext) {
             </div>}
           </div>
           <div className="stonk-stage-meta">
-            <span><Kbd>↑</Kbd>/<Kbd>W</Kbd> 做多 <Kbd>↓</Kbd>/<Kbd>S</Kbd> 做空 <Kbd>{spaceKeyLabel}</Kbd>/<Kbd>X</Kbd> 平仓 <Kbd>→</Kbd>/<Kbd>D</Kbd> 秀一下</span>
+            <span><Kbd>↑</Kbd>/<Kbd>W</Kbd> 做多 <Kbd>↓</Kbd>/<Kbd>S</Kbd> 做空 <Kbd>{spaceKeyLabel}</Kbd>/<Kbd>X</Kbd> 平仓 <Kbd>→</Kbd>/<Kbd>D</Kbd> 秀一下 <Kbd>P</Kbd> 暂停</span>
           </div>
           <section className="stonk-timeline" aria-label="关键价格节点">
             <div className="stonk-timeline-heading">

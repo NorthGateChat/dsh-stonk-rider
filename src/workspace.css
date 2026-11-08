@@ -53,12 +53,12 @@ body[data-ds-dark-theme] .stonk-workspace {
   min-height: 0;
 }
 .stonk-workspace-body[data-chat-open='true'] {
-  grid-template-columns: minmax(0, 1fr) 7px var(--stonk-chat-width, clamp(300px, 24vw, 400px));
+  grid-template-columns: minmax(0, 1fr) 9px var(--stonk-chat-width, clamp(300px, 24vw, 400px));
 }
 
 .stonk-splitter {
   position: relative;
-  width: 7px;
+  width: 9px;
   cursor: col-resize;
   touch-action: none;
   background: transparent;
@@ -127,6 +127,26 @@ body[data-ds-dark-theme] .stonk-workspace {
 .stonk-paused { position: absolute; inset: 0; display: grid; place-items: center; background: #101216b0; }
 .stonk-paused-card { align-items: center; gap: 14px; padding: 22px 26px; }
 .stonk-stage:focus-visible { outline: 2px solid var(--stonk-primary); outline-offset: 3px; }
+.stonk-focus-hint {
+  position: absolute;
+  left: 50%;
+  bottom: 14px;
+  z-index: 6;
+  transform: translateX(-50%);
+  padding: 6px 12px;
+  border: 1px solid var(--stonk-border);
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--stonk-base) 82%, transparent);
+  color: var(--stonk-secondary);
+  font-weight: 500;
+  font-size: 11px;
+  line-height: 1.2;
+  letter-spacing: .3px;
+  cursor: pointer;
+  backdrop-filter: blur(4px);
+}
+.stonk-focus-hint:hover { color: var(--stonk-text); border-color: var(--stonk-primary); }
+.stonk-focus-hint:focus-visible { outline: 2px solid var(--stonk-primary); outline-offset: 2px; }
 .stonk-stage-meta { margin-top: 8px; color: var(--stonk-secondary); font-size: 12px; }
 .stonk-stage-meta kbd:not(:first-child) { margin-inline-start: 4px; }
 
