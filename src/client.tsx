@@ -407,7 +407,7 @@ export function apply(ctx: ClientContext) {
                 <Badge variant="secondary">
                   {run ? `第 ${run.round}/${run.roundCount} 回合`
                     : homeSeason ? (homeSeason.matchDone ? `赛程达成 ${homeSeason.matchLen}/${homeSeason.matchLen}` : `第 ${homeRound}/${homeSeason.matchLen} 回合`)
-                    : '原版 1.0.73'}
+                    : '新赛程'}
                 </Badge>
                 <span>
                   {track ? `${track.dates[0]} — ${track.dates.at(-1)}`

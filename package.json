@@ -1,6 +1,6 @@
 {
   "name": "dsh-stonk-rider",
-  "version": "0.7.6",
+  "version": "0.7.7",
   "private": true,
   "description": "Stonk Rider 1.0.73 with contextual conversations for DeepSeek Harness Web",
   "type": "module",
