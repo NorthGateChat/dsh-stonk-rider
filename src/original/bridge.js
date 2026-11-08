@@ -26,7 +26,20 @@ function dshReport(requestId) {
   const phase = state === 'play' ? 'play' : shown('startOv') || shown('libOv') ? 'home'
     : shown('cardOv') ? 'draw' : dshActiveKey && lastRun?.key === dshActiveKey ? 'result' : 'home';
   if (!dshActiveKey || !bike || phase === 'home' || phase === 'draw') {
-    dshPost('state', { phase }, requestId);
+    const season = getSeason();
+    dshPost('state', {
+      phase,
+      // The home page reports its rolling bankroll too, so the DSH header can show
+      // the same season context before the next draw starts.
+      season: season && {
+        round: season.round,
+        matchLen: season.matchLen || CONFIG.MATCH_LEN,
+        cash: Math.max(0, Math.floor(season.cash)),
+        peak: Math.floor(season.peak || season.cash),
+        buffs: (season.buffs || []).length,
+        matchDone: !!season.matchDone,
+      },
+    }, requestId);
     return;
   }
   const point = priceAt(bike.x);

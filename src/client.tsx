@@ -286,6 +286,8 @@ export function apply(ctx: ClientContext) {
     const focusFrame = useRef(0)
     const run = 'assetKey' in gameInfo ? gameInfo : undefined
     const track = run && stocks[run.assetKey]
+    const homeSeason = !run && 'season' in gameInfo ? gameInfo.season : undefined
+    const homeRound = homeSeason ? (homeSeason.matchDone ? homeSeason.matchLen : Math.min(homeSeason.round + 1, homeSeason.matchLen)) : 0
     const paused = manualPause || hidden || (narrow && chatOpen)
 
     const receiveSnapshot = useCallback((value: GameSnapshot) => {
@@ -294,7 +296,12 @@ export function apply(ctx: ClientContext) {
       const currentKey = 'assetKey' in value ? value.assetKey : undefined
       const previousKey = 'assetKey' in previous ? previous.assetKey : undefined
       if (currentKey !== previousKey) setTopic(undefined)
-      if (previous.phase !== value.phase || currentKey !== previousKey) {
+      const currentSeason = 'season' in value ? value.season : undefined
+      const previousSeason = 'season' in previous ? previous.season : undefined
+      const seasonChanged = currentSeason?.round !== previousSeason?.round
+        || currentSeason?.cash !== previousSeason?.cash || currentSeason?.peak !== previousSeason?.peak
+        || currentSeason?.buffs !== previousSeason?.buffs || currentSeason?.matchDone !== previousSeason?.matchDone
+      if (previous.phase !== value.phase || currentKey !== previousKey || seasonChanged) {
         if (value.phase !== 'play') setManualPause(false)
         setGameInfo(value)
       }
@@ -397,8 +404,16 @@ export function apply(ctx: ClientContext) {
             <div>
               <h2>{track?.sym ?? 'K线狂飙'} {track && <span>{track.name}</span>}</h2>
               <div className="stonk-track-meta">
-                <Badge variant="secondary">{run ? `第 ${run.round}/${run.roundCount} 回合` : '原版 1.0.73'}</Badge>
-                <span>{track ? `${track.dates[0]} — ${track.dates.at(-1)}` : `${trackCount} 个标的 · 8 回合赛程`}</span>
+                <Badge variant="secondary">
+                  {run ? `第 ${run.round}/${run.roundCount} 回合`
+                    : homeSeason ? (homeSeason.matchDone ? `赛程达成 ${homeSeason.matchLen}/${homeSeason.matchLen}` : `第 ${homeRound}/${homeSeason.matchLen} 回合`)
+                    : '原版 1.0.73'}
+                </Badge>
+                <span>
+                  {track ? `${track.dates[0]} — ${track.dates.at(-1)}`
+                    : homeSeason ? `本金 ${gameMoney(homeSeason.cash)} · 峰值 ${gameMoney(homeSeason.peak)}`
+                    : `${trackCount} 个标的 · 8 回合赛程`}
+                </span>
               </div>
             </div>
             {gameInfo.phase === 'play' && <Button type="button" variant="outline" size="sm" onClick={manualPause ? resume : () => setManualPause(true)}>

@@ -15,7 +15,10 @@ export type RunSnapshot = {
   events: { date: string; label: string; judge: string }[]
   position: null | { dir: 1 | -1; stake: number; pnl: number }
 }
-export type GameSnapshot = { phase: 'home' | 'draw' } | RunSnapshot
+export type HomeSeason = {
+  round: number; matchLen: number; cash: number; peak: number; buffs: number; matchDone: boolean
+}
+export type GameSnapshot = { phase: 'home' | 'draw'; season?: HomeSeason | null } | RunSnapshot
 export type TradePoint = Point & { atMs: number }
 export type SettledTrade = {
   id: number; dir: 1 | -1; reversedFrom?: number
@@ -39,6 +42,20 @@ export type GameControl = { snapshot(): Promise<GameSnapshot | undefined>; focus
 const storagePrefix = 'dsh-stonk-rider:original:'
 const validKey = (key: string) => key === 'sr_guide_seen'
   || /^(?:stonk_(?:bgm|played|season)|stonk_(?:stars|best)_[a-z\d_]+)$/i.test(key)
+
+function homeSeason(value: unknown): HomeSeason | null {
+  if (!value || typeof value !== 'object') return null
+  const row = value as Record<string, unknown>
+  if (typeof row.round !== 'number' || typeof row.cash !== 'number' || typeof row.peak !== 'number') return null
+  return {
+    round: row.round,
+    matchLen: typeof row.matchLen === 'number' && row.matchLen > 0 ? row.matchLen : 8,
+    cash: row.cash,
+    peak: row.peak,
+    buffs: typeof row.buffs === 'number' ? row.buffs : 0,
+    matchDone: row.matchDone === true,
+  }
+}
 
 function gameStorage() {
   const values: Record<string, string> = {}
@@ -113,13 +130,18 @@ export function OriginalGame({ frame, control, paused, onSnapshot, onReview }: {
     function onMessage(event: MessageEvent) {
       if (event.source !== frame.current?.contentWindow || event.origin !== 'null' || event.data?.channel !== channel) return
       const { type, payload, requestId } = event.data
-      if (type === 'state' && payload && (
-        payload.phase === 'home' || payload.phase === 'draw'
-        || (payload.phase === 'play' || payload.phase === 'result') && Object.hasOwn(stocks, payload.assetKey)
-      )) {
-        setReady(true)
-        onSnapshot(payload)
-        if (request.current?.id === requestId) request.current?.finish(payload)
+      if (type === 'state' && payload) {
+        const phase = payload.phase
+        if (phase === 'home' || phase === 'draw') {
+          setReady(true)
+          const next: GameSnapshot = { phase, season: homeSeason(payload.season) }
+          onSnapshot(next)
+          if (request.current?.id === requestId) request.current?.finish(next)
+        } else if ((phase === 'play' || phase === 'result') && Object.hasOwn(stocks, payload.assetKey)) {
+          setReady(true)
+          onSnapshot(payload)
+          if (request.current?.id === requestId) request.current?.finish(payload)
+        }
       }
       if (type === 'review' && Number.isSafeInteger(requestId) && payload && Object.hasOwn(stocks, payload.assetKey)
         && (payload.kind === 'trade' && payload.trade?.close || payload.kind === 'moment' && payload.moment?.point)) {

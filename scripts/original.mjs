@@ -35,9 +35,28 @@ export async function loadOriginalGame() {
 #shortBtn::after { content:'↓ S'; }
 #gas::after { content:'→ D'; }
 #closeBtn::after { content:var(--dsh-space-label,'空格') ' X'; }
+/* DSH: the season bankroll is the only money that survives a finished round.
+   Surface it on the home page instead of waiting for the riding HUD. */
+#dshHomeSeason {
+  display:none; margin:2px auto 0; padding:6px 14px;
+  background:rgba(24,27,34,.7); border:1px solid rgba(61,220,151,.35);
+  border-radius:14px; color:var(--txt2); font-size:12px; letter-spacing:2px;
+  font-weight:500; font-variant-numeric:tabular-nums; max-width:calc(100% - 8px);
+  line-height:1.6;
+}
+#dshHomeSeason.show { display:inline-block; }
+#dshHomeSeason .hsRound { color:#3ddc97; font-weight:700; }
+#dshHomeSeason .hsCash { color:var(--txt); font-weight:700; }
+#dshHomeSeason .hsPeak { color:var(--txt); }
+#dshHomeSeason .hsBuffs { color:var(--txt2); }
+#dshHomeSeason .hsDone { color:#ffcf3a; font-weight:700; letter-spacing:1px; }
+#startOv.has-season > p:last-of-type { margin-bottom:12px; }
+#startOv.has-season #startBtn { margin-top:14px; }
 </style>`)
   replace('<script src="https://s1.hdslb.com/bfs/seed/toy/app/sdk/toy-sdk.js" defer></script>', '')
   replace('src="icon.png"', `src="data:image/png;base64,${icon}"`)
+  replace('    <button class="start-btn" id="startBtn">出发', `    <div id="dshHomeSeason" class="hide"></div>
+    <button class="start-btn" id="startBtn">出发`)
   replace("bgmEl.src='bgm.mp3'; bgmEl.loop=true; bgmEl.preload='auto'; bgmEl.crossOrigin='anonymous';",
     `bgmEl.src='data:audio/mpeg;base64,${bgm}'; bgmEl.loop=true; bgmEl.preload='auto';`)
   document = document.replaceAll('localStorage', 'dshStorage')
@@ -114,6 +133,10 @@ export async function loadOriginalGame() {
     '<div class="gkRow"><span class="kbd" data-dsh-key="close">空格</span><span><b>平仓</b> / 落袋（主操作；<b>←</b> / <b>X</b> 亦可）</span></div>')
   replace('<div class="gkRow"><span class="kbd">→</span><span>秀一下 / 跳跃捡钱</span></div>',
     '<div class="gkRow"><span class="kbd">→</span><span class="kbd">D</span><span><b>秀一下</b> / 跳跃捡钱（空中按住翻跟头；Mac 无方向键用 <b>W/S/D</b>）</span></div>')
+  // The rolling season bankroll only lived in the riding HUD and the end panel;
+  // returning home lost sight of the current round, cash, peak and build size.
+  replace("  renderPicker();\n  document.getElementById('startOv').classList.remove('hide');",
+    "  renderPicker();\n  dshHomeSummary();\n  document.getElementById('startOv').classList.remove('hide');")
   const loading = document.indexOf('// ===== 载入真实行情（stocks.json）=====')
   if (loading < 0) throw new Error('Stonk Rider data initialization not found')
   // The Bilibili SDK follows the network loader. Both are replaced by bundled data and a local bridge.
@@ -123,6 +146,36 @@ trackKey = randomKey();
 resize();
 ${review}
 ${bridge}
+// The home page only offers 出发 and the library, so the running season was invisible
+// between rounds. Show the one thing that actually rolls over: round / bankroll / peak / build.
+function dshHomeSummary(){
+  const el = document.getElementById('dshHomeSeason');
+  const home = document.getElementById('startOv');
+  const sub = document.querySelector('#startBtn > span');
+  if(!el) return;
+  const s = getSeason();
+  if(!s){
+    el.className = 'hide'; el.textContent = '';
+    if(home) home.classList.remove('has-season');
+    if(sub) sub.textContent = '随机抽一只股';
+    return;
+  }
+  const len = s.matchLen || CONFIG.MATCH_LEN;
+  const cash = Math.max(0, Math.floor(s.cash));
+  const peak = Math.floor(s.peak || cash);
+  const buffs = (s.buffs || []).length;
+  const round = Math.min(s.round + 1, len);
+  const money = n => '$' + n.toLocaleString();
+  if(s.matchDone){
+    el.innerHTML = '<span class="hsDone">赛程达成</span> · <span class="hsRound">' + len + '/' + len + '</span> 回合 · 峰值 <span class="hsPeak">' + money(peak) + '</span>';
+    if(sub) sub.textContent = '赛程已达 · 再跑一局';
+  } else {
+    el.innerHTML = '第 <span class="hsRound">' + round + '/' + len + '</span> 回合 · 本金 <span class="hsCash">' + money(cash) + '</span> · 峰值 <span class="hsPeak">' + money(peak) + '</span>' + (buffs ? ' · <span class="hsBuffs">' + buffs + ' 张卡</span>' : '');
+    if(sub) sub.textContent = '继续第 ' + round + ' 回合 · 随机抽一只股';
+  }
+  el.className = 'show';
+  if(home) home.classList.add('has-season');
+}
 ;(() => {
   // Mac keyboards label the space bar "Space"; keep the hints consistent with the platform.
   const mac = /Mac|iPhone|iPad|iPod/.test(navigator.platform || navigator.userAgent || '');
@@ -130,6 +183,7 @@ ${bridge}
   if (mac) document.documentElement.style.setProperty('--dsh-space-label', '"' + space + '"');
   for (const node of document.querySelectorAll('[data-dsh-key="close"]')) node.textContent = space;
 })();
+dshHomeSummary();
 </script>
 </body>
 </html>`
