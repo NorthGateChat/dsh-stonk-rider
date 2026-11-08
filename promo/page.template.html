@@ -1,0 +1,415 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<title>Stonk Rider · DSH Plugin Promo</title>
+<style>
+  :root {
+    --bg: #eef1f4;
+    --ink: #111418;
+    --muted: #67727c;
+    --line: #e3e8ed;
+    --accent: #2f9e74;
+  }
+  * { box-sizing: border-box; }
+  html, body {
+    width: 100%;
+    height: 100%;
+    margin: 0;
+    overflow: hidden;
+    background: var(--bg);
+    color: var(--ink);
+    font-family: "Microsoft YaHei", "PingFang SC", "Noto Sans SC", "Source Han Sans SC", sans-serif;
+    font-synthesis: none;
+  }
+  #stage {
+    position: absolute;
+    left: 0;
+    top: 0;
+    width: 1920px;
+    height: 1080px;
+    transform: scale(var(--stage-scale, 1));
+    transform-origin: top left;
+  }
+  body { position: relative; }
+  .backdrop { position: absolute; inset: 0; overflow: hidden; }
+  .glow { position: absolute; border-radius: 50%; filter: blur(70px); opacity: .65; }
+  .glow.g1 { width: 760px; height: 760px; left: -240px; top: 120px; background: #dfe8e4; }
+  .glow.g2 { width: 900px; height: 900px; right: -360px; bottom: -360px; background: #e5dfd2; opacity: .5; }
+  .glow.g3 { width: 500px; height: 500px; left: 44%; top: -260px; background: #dbe6ef; opacity: .55; }
+  .grid {
+    position: absolute; inset: 0; opacity: .3;
+    background-image:
+      linear-gradient(rgba(120,135,150,.08) 1px, transparent 1px),
+      linear-gradient(90deg, rgba(120,135,150,.08) 1px, transparent 1px);
+    background-size: 48px 48px;
+    mask-image: linear-gradient(180deg, transparent, #000 18%, #000 82%, transparent);
+  }
+
+  .window {
+    position: absolute;
+    left: 540px;
+    top: 66px;
+    width: 1320px;
+    height: 950px;
+    overflow: hidden;
+    border-radius: 20px;
+    background: #fbfcfd;
+    box-shadow: 0 44px 120px rgba(22, 34, 44, .26), 0 0 0 1px rgba(255, 255, 255, .8) inset;
+    transition: opacity .7s ease, transform .9s cubic-bezier(.2,.7,.2,1);
+    transform-origin: 52% 50%;
+  }
+  .titlebar {
+    position: relative;
+    display: flex;
+    align-items: center;
+    height: 54px;
+    padding: 0 22px;
+    background: #f8fafb;
+    border-bottom: 1px solid var(--line);
+  }
+  .dots { display: flex; gap: 8px; }
+  .dots span { width: 12px; height: 12px; border-radius: 50%; background: #d9dfe5; }
+  .titlebar-title { position: absolute; left: 50%; transform: translateX(-50%); color: #8a949e; font-size: 15px; letter-spacing: .02em; }
+
+  .window-body { display: grid; grid-template-columns: 830px 490px; height: 896px; }
+  body.chapter4 .window-body, body.chapter5 .window-body, body.chapter6 .window-body { grid-template-columns: 1fr 0px; }
+  body.chapter4 .chat, body.chapter5 .chat, body.chapter6 .chat { opacity: 0; overflow: hidden; border: 0; }
+
+  .game-panel { position: relative; display: flex; flex-direction: column; min-width: 0; background: #0e1116; }
+  .game-top {
+    display: flex; align-items: center; justify-content: space-between;
+    height: 46px; padding: 0 18px; background: #12161d; border-bottom: 1px solid #232a33;
+  }
+  .brand { display: flex; align-items: center; gap: 9px; color: #e8eef4; font-size: 14px; font-weight: 650; letter-spacing: .02em; }
+  .brand-dot { width: 8px; height: 8px; border-radius: 50%; background: var(--accent); box-shadow: 0 0 14px rgba(61,220,151,.7); }
+  .game-badge { color: #a9b8b1; background: #15231d; border: 1px solid #284438; border-radius: 999px; padding: 4px 11px; font-size: 11px; letter-spacing: .03em; }
+  #game { display: block; width: 100%; flex: 1 1 auto; border: 0; background: #101216; }
+  .game-keys {
+    display: flex; align-items: center; gap: 12px; height: 34px; padding: 0 18px;
+    background: #12161d; border-top: 1px solid #232a33; color: #7e8a96; font-size: 11px; letter-spacing: .02em;
+  }
+  .game-keys b { color: #d3dce4; font-weight: 650; }
+
+  .pause {
+    position: absolute; left: 0; right: 0; top: 46px; bottom: 34px; z-index: 5;
+    display: grid; place-items: center; background: rgba(10, 13, 18, .58);
+    opacity: 0; pointer-events: none; transition: opacity .35s ease;
+  }
+  body.chapter3 .pause { opacity: 1; }
+  .pause-card {
+    width: 300px; padding: 24px 26px 22px; border-radius: 16px; text-align: center;
+    background: rgba(22, 26, 33, .92); border: 1px solid rgba(255,255,255,.12);
+    box-shadow: 0 24px 50px rgba(0,0,0,.4);
+  }
+  .pause-title { color: #f2f5f7; font-size: 20px; font-weight: 700; letter-spacing: .04em; }
+  .pause-sub { margin-top: 8px; color: #98a6b3; font-size: 12px; line-height: 1.6; }
+  .pause-btn {
+    margin: 18px auto 0; padding: 9px 22px; border-radius: 9px; border: 0;
+    background: #2f9e74; color: #fff; font: 600 13px/1 "Microsoft YaHei", sans-serif; letter-spacing: .04em;
+  }
+
+  .chat { display: flex; flex-direction: column; min-width: 0; background: #fbfcfd; border-left: 1px solid var(--line); color: #1c242b; transition: opacity .3s ease; }
+  .chat-head { display: flex; align-items: center; justify-content: space-between; height: 54px; padding: 0 20px; border-bottom: 1px solid #eef1f4; font-size: 16px; font-weight: 650; }
+  .chat-head span:last-child { color: #9aa5af; font-size: 15px; }
+  .ctx { margin: 14px 18px 0; padding: 12px 14px; border: 1px solid #e4e9ee; border-radius: 12px; background: #fff; }
+  .ctx-sym { display: flex; align-items: baseline; gap: 8px; font-size: 17px; font-weight: 700; }
+  .ctx-sym small { color: #7a8792; font-size: 12px; font-weight: 500; }
+  .ctx-row { display: flex; justify-content: space-between; margin-top: 9px; color: #76838e; font-size: 12px; }
+  .ctx-row b { color: #1c242b; font-weight: 700; }
+  .chat-body { flex: 1 1 auto; min-height: 0; overflow: hidden; display: flex; flex-direction: column; gap: 13px; padding: 16px 18px; }
+  .empty { color: #9ba6b0; font-size: 12px; line-height: 1.65; }
+  .msg { opacity: 0; transform: translateY(8px); transition: opacity .5s ease, transform .5s ease; }
+  .msg.user { align-self: flex-end; max-width: 90%; padding: 10px 14px; border-radius: 14px 14px 4px 14px; background: #edf1f4; font-size: 15px; line-height: 1.6; }
+  .msg.ai { align-self: flex-start; max-width: 96%; font-size: 14.5px; line-height: 1.7; color: #2b343c; }
+  .chat.asked .msg.user { opacity: 1; transform: none; transition-delay: .20s; }
+  .chat.asked .empty { display: none; }
+  .typing { display: flex; gap: 4px; align-items: center; height: 30px; opacity: 0; transition: opacity .3s ease; }
+  .typing i { width: 5px; height: 5px; border-radius: 50%; background: #8f9ba6; display: block; animation: dot 1s ease-in-out infinite; }
+  .typing i:nth-child(2) { animation-delay: .15s; }
+  .typing i:nth-child(3) { animation-delay: .3s; }
+  .chat.is-typing .typing { opacity: 1; }
+  .chat.answered .typing { opacity: 0; }
+  .chat.answered .msg.ai { opacity: 1; transform: none; transition-delay: .15s; }
+  .ai-title { font-size: 13px; color: #66727d; font-weight: 650; margin-bottom: 7px; letter-spacing: .02em; }
+  .msg.ai ul { margin: 0 0 10px; padding: 0; list-style: none; }
+  .msg.ai li { position: relative; padding-left: 15px; margin: 5px 0; color: #46515b; }
+  .msg.ai li::before { content: ""; position: absolute; left: 2px; top: .63em; width: 4px; height: 4px; border-radius: 50%; background: #a6b2bd; }
+  .msg.ai p { margin: 0; }
+  .msg.ai b { color: #155f45; font-weight: 700; }
+  .chat-input { display: flex; align-items: center; gap: 8px; height: 52px; margin: 0 18px 16px; padding: 0 10px 0 15px; border: 1px solid #dfe5ea; border-radius: 13px; color: #9aa5af; font-size: 13px; background: #fff; }
+  .chat-send { margin-left: auto; display: grid; place-items: center; width: 32px; height: 32px; border-radius: 50%; background: #1c242b; color: #fff; font-size: 14px; }
+
+  .copy { position: absolute; left: 110px; top: 50%; width: 400px; transform: translateY(-50%); }
+  .eyebrow { font-size: 14px; font-weight: 650; letter-spacing: .16em; color: #7d8994; text-transform: uppercase; }
+  .copy h2 { margin: 18px 0 20px; font-size: 60px; line-height: 1.14; font-weight: 800; letter-spacing: -.04em; white-space: pre-line; color: #101418; }
+  .copy p { margin: 0; max-width: 390px; color: #66727d; font-size: 21px; line-height: 1.72; letter-spacing: .01em; }
+  .chapter { position: absolute; inset: 0; opacity: 0; transform: translateY(16px); filter: blur(4px); transition: opacity .55s ease, transform .6s cubic-bezier(.2,.7,.2,1), filter .5s ease; pointer-events: none; }
+  body.chapter1 .ch1, body.chapter2 .ch2, body.chapter3 .ch3, body.chapter4 .ch4, body.chapter5 .ch5, body.chapter6 .ch6 { opacity: 1; transform: none; filter: none; }
+  body.chapter2 .ch1, body.chapter3 .ch1, body.chapter4 .ch1, body.chapter5 .ch1, body.chapter6 .ch1,
+  body.chapter3 .ch2, body.chapter4 .ch2, body.chapter5 .ch2, body.chapter6 .ch2,
+  body.chapter4 .ch3, body.chapter5 .ch3, body.chapter6 .ch3,
+  body.chapter5 .ch4, body.chapter6 .ch4,
+  body.chapter6 .ch5 { opacity: 0; transform: translateY(-12px); filter: blur(4px); }
+
+  .cold {
+    position: absolute; inset: 0; z-index: 40; display: grid; place-items: center;
+    background: rgba(244,247,249,.76);
+    backdrop-filter: blur(22px) saturate(.72) brightness(1.08);
+    transition: opacity .65s ease;
+  }
+  body.cold-start .window { transform: scale(1.025); }
+  body.chapter1 .cold, body.chapter2 .cold, body.chapter3 .cold, body.chapter4 .cold, body.chapter5 .cold, body.chapter6 .cold, body.ending .cold { opacity: 0; pointer-events: none; }
+  .cold-inner { text-align: center; transform: translateY(-18px); }
+  .cold-kicker { color: #7d8994; font-size: 14px; font-weight: 650; letter-spacing: .2em; }
+  .cold-title { max-width: 980px; margin: 20px auto 0; color: #101418; font-size: 56px; line-height: 1.25; font-weight: 800; letter-spacing: -.03em; min-height: 76px; white-space: pre-line; }
+  .cold-title::after { content: ""; display: inline-block; width: 3px; height: .95em; margin-left: 5px; vertical-align: -.08em; background: #2f9e74; animation: blink .95s steps(1) infinite; }
+  .cold-sub { margin-top: 18px; color: #68747f; font-size: 20px; letter-spacing: .01em; }
+  @keyframes blink { 0%, 55% { opacity: 1; } 56%, 100% { opacity: 0; } }
+  @keyframes dot { 0%, 100% { transform: translateY(0); opacity: .45; } 50% { transform: translateY(-3px); opacity: 1; } }
+
+  .end { position: absolute; inset: 0; z-index: 50; display: flex; flex-direction: column; align-items: center; justify-content: center; background: var(--bg); opacity: 0; visibility: hidden; transition: opacity .75s ease, visibility 0s linear .75s; }
+  body.ending .end { opacity: 1; visibility: visible; transition: opacity .75s ease; }
+  body.ending .window { opacity: 0; transform: scale(.97) translateY(10px); }
+  body.ending .chapter { opacity: 0; transform: translateY(-10px); }
+  .end-icon { width: 108px; height: 108px; border-radius: 26px; box-shadow: 0 18px 40px rgba(20,32,40,.18); }
+  .end-title { margin: 26px 0 0; font-size: 68px; font-weight: 800; letter-spacing: -.035em; color: #101418; }
+  .end-sub { margin-top: 12px; color: #68747f; font-size: 24px; letter-spacing: .01em; }
+  .end-cmd { margin-top: 38px; padding: 16px 26px; border-radius: 14px; background: #fff; border: 1px solid #dfe5ea; box-shadow: 0 12px 28px rgba(30,45,55,.08); color: #25313a; font: 500 20px/1 "Cascadia Mono", "Consolas", monospace; letter-spacing: -.01em; }
+  .end-cmd b { color: #2f9e74; font-weight: 700; }
+  .end-links { margin-top: 24px; color: #7a8691; font-size: 17px; letter-spacing: .02em; }
+  .end-links b { color: #47545f; font-weight: 600; }
+  .end-credit { position: absolute; bottom: 36px; color: #9aa5af; font-size: 12px; letter-spacing: .02em; }
+</style>
+</head>
+<body class="cold-start">
+  <div id="stage">
+  <div class="backdrop">
+    <div class="glow g1"></div>
+    <div class="glow g2"></div>
+    <div class="glow g3"></div>
+    <div class="grid"></div>
+  </div>
+
+  <div class="window" id="win">
+    <div class="titlebar">
+      <div class="dots"><span></span><span></span><span></span></div>
+      <div class="titlebar-title">DeepSeek Harness</div>
+    </div>
+    <div class="window-body">
+      <div class="game-panel">
+        <div class="game-top">
+          <div class="brand"><span class="brand-dot"></span>Stonk Rider</div>
+          <div class="game-badge" id="gameRoundBadge">第 3/8 回合</div>
+        </div>
+        <iframe id="game" title="Stonk Rider"></iframe>
+        <div class="game-keys"><span><b>W</b> 做多</span><span><b>S</b> 做空</span><span><b>空格</b> 平仓</span><span><b>D</b> 秀一下</span><span><b>P</b> 暂停</span></div>
+        <div class="pause">
+          <div class="pause-card">
+            <div class="pause-title">骑行已暂停</div>
+            <div class="pause-sub">问 DSH 时自动停住，回答后继续</div>
+            <button class="pause-btn" type="button">返回赛道</button>
+          </div>
+        </div>
+      </div>
+      <aside class="chat" id="chat">
+        <div class="chat-head"><span>赛道问答</span><span>↗</span></div>
+        <div class="ctx">
+          <div class="ctx-sym">NVDA <small>英伟达</small></div>
+          <div class="ctx-row"><span>第 3/8 回合</span><span>本金 <b>$1,850</b> · 峰值 <b>$2,100</b></span></div>
+        </div>
+        <div class="chat-body">
+          <div class="empty">从一个价格节点开始，带着仓位问 DSH。</div>
+          <div class="msg user">帮我复盘刚才那笔多单：为什么平仓后资金还是回撤了？</div>
+          <div class="typing"><i></i><i></i><i></i></div>
+          <div class="msg ai">
+            <div class="ai-title">这笔多单的结算链路</div>
+            <ul>
+              <li>01-14 放量突破 · $132.40 做多</li>
+              <li>01-21 同向加仓 · 仓位到 $740</li>
+              <li>02-01 见顶回撤 · 手动平仓</li>
+            </ul>
+            <p>基础盈亏 <b>+$240</b>，结算后资金 <b>$1,850</b>。回撤来自峰值 $2,100 后的 -8.2%，不是平仓本身。</p>
+          </div>
+        </div>
+        <div class="chat-input"><span>带着赛道节点提问…</span><div class="chat-send">↑</div></div>
+      </aside>
+    </div>
+  </div>
+
+  <div class="chapter ch1">
+    <div class="copy">
+      <div class="eyebrow">K 线狂飙 1.0.73 × DSH</div>
+      <h2>真实行情，<br>直接骑上去。</h2>
+      <p>56 个标的历史 K 线铺成赛道。看涨就做多，看跌就做空。</p>
+    </div>
+  </div>
+
+  <div class="chapter ch2">
+    <div class="copy">
+      <div class="eyebrow">押方向 · 加仓 · 平仓</div>
+      <h2>落袋为安，<br>或者一把梭哈。</h2>
+      <p>同向加仓放大仓位，反手平仓开新仓。金币和空翻，只是路上的彩头。</p>
+    </div>
+  </div>
+
+  <div class="chapter ch3">
+    <div class="copy">
+      <div class="eyebrow">问 DSH · 复盘</div>
+      <h2>这一笔，<br>为什么亏？</h2>
+      <p>带着当前仓位、关键节点和逐笔交易提问。答案就在右侧。</p>
+    </div>
+  </div>
+
+  <div class="chapter ch4">
+    <div class="copy">
+      <div class="eyebrow">每局结算 · 逐笔复盘</div>
+      <h2>打完这一局，<br>先看账。</h2>
+      <p>本金→结算、回撤峰值，逐笔交易摊开看；赢了下局继续，输了当场结清。</p>
+    </div>
+  </div>
+
+  <div class="chapter ch5">
+    <div class="copy">
+      <div class="eyebrow">赢家滚存</div>
+      <h2>赢了，<br>本金滚进下一局。</h2>
+      <p>结算后的本金和卡组直接带进下一回合，越滚越大；冲线不是结束。</p>
+    </div>
+  </div>
+
+  <div class="chapter ch6">
+    <div class="copy">
+      <div class="eyebrow">爆仓出局</div>
+      <h2>输，不一定<br>等到结算。</h2>
+      <p>重仓押反、资金跌破零，骑行当场终止；没有复活币，也等不到下一局。</p>
+    </div>
+  </div>
+
+  <div class="cold" id="cold">
+    <div class="cold-inner">
+      <div class="cold-kicker">STONK RIDER · DSH PLUGIN</div>
+      <div class="cold-title" id="coldTitle"></div>
+      <div class="cold-sub">抽一只真实股，在它的历史 K 线上狂飙。</div>
+    </div>
+  </div>
+
+  <div class="end" id="end">
+    <img class="end-icon" src="{{ICON}}" alt="">
+    <div class="end-title">Stonk Rider</div>
+    <div class="end-sub">DSH 插件 · 在会话旁边骑真实 K 线</div>
+    <div class="end-cmd">$ dsh plugin --profile desktop add <b>dsh-stonk-rider-0.9.1.tgz</b></div>
+    <div class="end-links"><b>github.com/NorthGateChat/dsh-stonk-rider</b> · v0.9.1 · MIT</div>
+    <div class="end-credit">BGM “Kick Shock” — Kevin MacLeod · CC BY 4.0</div>
+  </div>
+  </div>
+
+<!--PROMO_GAME-->
+<script>
+  const fitStage = () => {
+    const scale = Math.min(window.innerWidth / 1920, window.innerHeight / 1080);
+    document.documentElement.style.setProperty('--stage-scale', String(scale));
+  };
+  fitStage();
+  window.addEventListener('resize', fitStage);
+  document.documentElement.setAttribute('data-viewport', `${window.innerWidth}x${window.innerHeight}`);
+
+  const frame = document.getElementById('game');
+  const chat = document.getElementById('chat');
+  const body = document.body;
+  const coldTitle = document.getElementById('coldTitle');
+  const game = data => frame.contentWindow && frame.contentWindow.postMessage(data, '*');
+  const at = (ms, fn) => setTimeout(fn, ms);
+
+  let ready = false;
+  window.addEventListener('message', event => {
+    if (event.data && event.data.promo === 'game-ready') {
+      ready = true;
+      window.__promoReady = true;
+      document.documentElement.setAttribute('data-ready', 'true');
+    }
+    if (event.data && event.data.promo === 'promo-error') {
+      window.__promoError = event.data.message;
+      document.documentElement.setAttribute('data-error', event.data.message);
+    }
+    if (event.data && event.data.promo === 'game-state') {
+      document.documentElement.setAttribute('data-state', JSON.stringify(event.data.state));
+    }
+  });
+  frame.srcdoc = window.PROMO_GAME;
+
+  const coldText = '这 32 秒，骑上一条真实 K 线。';
+  function typeCold() {
+    let index = 0;
+    const timer = setInterval(() => {
+      index += 1;
+      coldTitle.textContent = coldText.slice(0, index);
+      if (index >= coldText.length) clearInterval(timer);
+    }, 72);
+  }
+
+  function setChapter(number) {
+    body.classList.remove('cold-start', 'chapter1', 'chapter2', 'chapter3', 'chapter4', 'chapter5', 'chapter6');
+    if (number) body.classList.add('chapter' + number);
+  }
+
+  window.startPromo = () => {
+    window.__promoStart = Date.now() / 1000;
+    document.documentElement.setAttribute('data-promo-start', String(window.__promoStart));
+    typeCold();
+    at(2800, () => setChapter(1));
+    at(3800, () => game({ promo: 'click', id: 'startBtn' }));
+
+    at(8600, () => game({ promo: 'key', key: 'ArrowUp', code: 'ArrowUp' }));
+    at(9300, () => game({ promo: 'key', key: 'ArrowUp', code: 'ArrowUp' }));
+    at(10400, () => game({ promo: 'key', key: ' ', code: 'Space' }));
+    at(11300, () => game({ promo: 'key', key: 'ArrowDown', code: 'ArrowDown' }));
+    at(12500, () => game({ promo: 'key', key: ' ', code: 'Space' }));
+    at(13400, () => game({ promo: 'key', key: 'ArrowUp', code: 'ArrowUp' }));
+    at(14600, () => game({ promo: 'key', key: ' ', code: 'Space' }));
+    at(15000, () => game({ promo: 'snapshot' }));
+
+    at(9400, () => setChapter(2));
+    at(15000, () => {
+      setChapter(3);
+      game({ promo: 'pause', paused: true });
+      at(350, () => chat.classList.add('asked'));
+      at(1200, () => chat.classList.add('is-typing'));
+      at(2500, () => { chat.classList.remove('is-typing'); chat.classList.add('answered'); });
+    });
+
+    at(21000, () => {
+      setChapter(4);
+      game({ promo: 'pause', paused: false });
+      at(300, () => game({ promo: 'end-win' }));
+      at(1900, () => game({ promo: 'open-trade-review' }));
+    });
+
+    at(27000, () => {
+      setChapter(5);
+      document.getElementById('gameRoundBadge').textContent = '第 4/8 回合';
+      game({ promo: 'skip-intermission' });
+      at(450, () => game({ promo: 'home' }));
+    });
+
+    at(30500, () => {
+      setChapter(6);
+      game({ promo: 'start-next' });
+    });
+    at(31300, () => game({ promo: 'key', key: 'ArrowDown', code: 'ArrowDown' }));
+    at(32200, () => game({ promo: 'mid-bust' }));
+
+    at(36500, () => body.classList.add('ending'));
+    at(39900, () => { window.__promoDone = true; });
+  };
+
+  const preview = new URLSearchParams(location.search).get('preview');
+  if (preview) {
+    if (preview === 'cold') typeCold();
+    if (preview === 'chapter1') { body.classList.remove('cold-start'); setChapter(1); }
+    if (preview === 'chapter2') { body.classList.remove('cold-start'); setChapter(2); }
+    if (preview === 'chapter3') { body.classList.remove('cold-start'); setChapter(3); chat.classList.add('asked', 'answered'); }
+    if (preview === 'ending') { body.classList.add('ending'); }
+  }
+</script>
+</body>
+</html>

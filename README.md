@@ -24,6 +24,10 @@ dsh web
 
 更多截图：[赛程达成](docs/pc-layout/start-finished-980x540.png)、[玩法说明](docs/pc-layout/guide-980x540.png)、[行情库](docs/pc-layout/library-980x540.png)、[笔记本尺寸](docs/pc-layout/start-laptop-980x422.png)、[窄窗回退](docs/pc-layout/start-narrow-640x380.png)。
 
+## 宣传视频
+
+[40 秒宣传片](promo/stonk-rider-launch.mp4)（1920×1080 / 30fps） · [封面](promo/stonk-rider-launch-poster.jpg) · [生成说明](promo/README.md)
+
 ## 卸载
 
 卸载使用 `dsh plugin --profile web remove dsh-stonk-rider`。
